@@ -205,6 +205,12 @@ class OTPService:
                 user.account_balance = round(user.account_balance - tx.amount, 2)
                 tx.balance_after = float(user.account_balance)
 
+                # Atomically credit internal recipient if applicable
+                if tx.recipient_user_id and tx.recipient_user_id != user.id:
+                    recipient = db.session.get(User, tx.recipient_user_id)
+                    if recipient and recipient.account_balance is not None:
+                        recipient.account_balance = round(recipient.account_balance + tx.amount, 2)
+
             if tx.beneficiary_id:
                 from app.services.beneficiary_service import BeneficiaryService
                 BeneficiaryService.record_payment_outcome(tx.beneficiary_id, tx.amount, success=True)

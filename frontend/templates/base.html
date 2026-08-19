@@ -120,47 +120,75 @@
     </div>
   </div>
 
-  <!-- Real-Time Prediction Result Modal -->
+  <!-- Real-Time Prediction & UPI Payment Result Modal -->
   <div id="result-modal-overlay" class="modal-overlay">
     <div class="modal-box" style="max-width: 540px;">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
-        <h3 style="font-size: 1.25rem; color: #fff;">Transaction Assessment</h3>
-        <span id="res-status-badge" class="badge-risk badge-risk-low">APPROVED</span>
+      
+      <!-- UPI Receipt Header -->
+      <div id="res-receipt-banner" style="text-align: center; margin-bottom: 1.25rem; padding: 1.25rem; border-radius: var(--radius-md); background: rgba(52, 211, 153, 0.1); border: 1px solid rgba(52, 211, 153, 0.25);">
+        <div id="res-receipt-icon" style="font-size: 2.5rem; margin-bottom: 0.25rem;">✓</div>
+        <h2 id="res-receipt-title" style="font-size: 1.4rem; color: #fff; margin: 0 0 0.25rem 0;">Payment Successful</h2>
+        <div id="res-receipt-amount" style="font-size: 2rem; font-weight: 800; color: #34D399; font-family: monospace; margin-bottom: 0.5rem;">₹0.00</div>
+        <div id="res-receipt-recipient" style="font-size: 0.9rem; color: #E2E8F0; font-weight: 600;">Paid to --</div>
+        <div id="res-receipt-ref-id" style="font-size: 0.75rem; color: var(--text-dim); font-family: monospace; margin-top: 0.25rem;">Ref: UPI--</div>
       </div>
 
-      <div class="glass-card" style="margin-bottom: 1.25rem; padding: 1.25rem;">
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
-          <div>
-            <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Transaction Risk Score</div>
-            <div id="res-risk-score" style="font-size: 1.6rem; font-weight: 800; color: #fff;">--/100</div>
-          </div>
-          <div>
-            <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">ML Model Probability</div>
-            <div id="res-fraud-prob" style="font-size: 1.6rem; font-weight: 800; color: #60A5FA;">--%</div>
-          </div>
+      <!-- Balance Movement Summary (Approved Only) -->
+      <div id="res-balance-box" class="glass-card" style="margin-bottom: 1rem; padding: 0.85rem 1rem; display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem;">
+        <div>
+          <span style="color: var(--text-muted);">Previous Balance:</span>
+          <span id="res-prev-balance" style="color: #CBD5E1; font-weight: 600; font-family: monospace;">₹0.00</span>
         </div>
-
-        <div style="border-top: 1px solid var(--border-glass); padding-top: 0.75rem;">
-          <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Security Decision</div>
-          <div id="res-decision-text" style="font-weight: 600; color: #E2E8F0; font-size: 0.95rem;">--</div>
+        <div style="font-size: 1.1rem; color: var(--text-dim);">→</div>
+        <div>
+          <span style="color: var(--text-muted);">New Balance:</span>
+          <span id="res-new-balance" style="color: #34D399; font-weight: 700; font-family: monospace;">₹0.00</span>
         </div>
       </div>
 
-      <!-- Policy Risk Factors List -->
-      <div id="res-risk-factors-container" class="glass-card" style="margin-bottom: 1.25rem; padding: 1rem; border-left: 3px solid #F59E0B; display: none;">
-        <div style="font-size: 0.75rem; color: #F59E0B; text-transform: uppercase; font-weight: 700; margin-bottom: 0.4rem;">Risk Factors Identified</div>
-        <ul id="res-risk-factors-list" style="margin: 0; padding-left: 1.2rem; font-size: 0.825rem; color: #CBD5E1; line-height: 1.5;">
-        </ul>
-      </div>
+      <!-- FraudShield AI Security Check Details (Collapsible) -->
+      <details id="res-security-details" style="margin-bottom: 1rem; background: rgba(0, 0, 0, 0.2); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-glass);">
+        <summary style="cursor: pointer; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center;">
+          <span>🛡️ FraudShield AI Defense Evaluation</span>
+          <span id="res-status-badge" class="badge-risk badge-risk-low" style="font-size: 0.65rem;">APPROVED</span>
+        </summary>
+        
+        <div style="margin-top: 0.75rem;">
+          <div class="glass-card" style="margin-bottom: 0.75rem; padding: 0.85rem;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.5rem;">
+              <div>
+                <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Risk Score</div>
+                <div id="res-risk-score" style="font-size: 1.3rem; font-weight: 800; color: #fff;">--/100</div>
+              </div>
+              <div>
+                <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">ML Probability</div>
+                <div id="res-fraud-prob" style="font-size: 1.3rem; font-weight: 800; color: #60A5FA;">--%</div>
+              </div>
+            </div>
 
-      <p id="res-narrative-text" style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.5rem; line-height: 1.4;">
-        Evaluation complete.
-      </p>
+            <div style="border-top: 1px solid var(--border-glass); padding-top: 0.5rem;">
+              <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Decision</div>
+              <div id="res-decision-text" style="font-weight: 600; color: #E2E8F0; font-size: 0.85rem;">--</div>
+            </div>
+          </div>
+
+          <!-- Policy Risk Factors List -->
+          <div id="res-risk-factors-container" class="glass-card" style="margin-bottom: 0.75rem; padding: 0.75rem; border-left: 3px solid #F59E0B; display: none;">
+            <div style="font-size: 0.7rem; color: #F59E0B; text-transform: uppercase; font-weight: 700; margin-bottom: 0.25rem;">Risk Factors Identified</div>
+            <ul id="res-risk-factors-list" style="margin: 0; padding-left: 1.2rem; font-size: 0.75rem; color: #CBD5E1; line-height: 1.4;">
+            </ul>
+          </div>
+
+          <p id="res-narrative-text" style="font-size: 0.8rem; color: var(--text-muted); margin: 0; line-height: 1.4;">
+            Evaluation complete.
+          </p>
+        </div>
+      </details>
 
       <div style="display: flex; gap: 0.75rem;">
-        <button id="btn-why-flagged" type="button" class="btn-secondary-custom" style="flex: 1;">🔍 Why Flagged? (SHAP)</button>
-        <button id="btn-proceed-otp" type="button" class="btn-primary-custom" style="flex: 1; display: none;">Complete OTP</button>
-        <button id="btn-close-result-modal" type="button" class="btn-secondary-custom">Done</button>
+        <button id="btn-why-flagged" type="button" class="btn-secondary-custom" style="flex: 1; font-size: 0.85rem;">🔍 AI Explainability (SHAP)</button>
+        <button id="btn-proceed-otp" type="button" class="btn-primary-custom" style="flex: 1; display: none; font-size: 0.85rem;">Complete OTP Challenge</button>
+        <button id="btn-close-result-modal" type="button" class="btn-secondary-custom" style="font-size: 0.85rem;">Done</button>
       </div>
     </div>
   </div>

@@ -174,6 +174,31 @@ class ApiClient {
       body: JSON.stringify({ transaction_id: transactionId, otp_code: otpCode }),
     });
   }
+
+  async resolveRecipient(query) {
+    return this.request('/api/transactions/resolve-recipient', {
+      method: 'POST',
+      body: JSON.stringify({ query }),
+    });
+  }
+
+  async parseQrCode(qrData) {
+    return this.request('/api/transactions/parse-qr', {
+      method: 'POST',
+      body: JSON.stringify({ qr_data: qrData }),
+    });
+  }
+
+  async setPaymentPin(password, pin, confirmPin) {
+    return this.request('/api/auth/payment-pin/set', {
+      method: 'POST',
+      body: JSON.stringify({ password, pin, confirm_pin: confirmPin }),
+    });
+  }
+
+  async getPaymentPinStatus() {
+    return this.request('/api/auth/payment-pin/status', { method: 'GET' });
+  }
 }
 
 // Global API instance

@@ -139,3 +139,56 @@ def reset_password():
         "message": "Password has been reset successfully. You may now sign in with your new password."
     }), 200
 
+
+@auth_bp.route("/payment-pin/set", methods=["POST"])
+@jwt_required()
+def set_payment_pin():
+    """
+    Set or update 4-6 digit numeric payment PIN (requires account password authorization).
+    """
+    from app.services.payment_service import PaymentService
+    user_id = int(get_jwt_identity())
+    data = request.get_json(silent=True)
+    if not data or not isinstance(data, dict):
+        return jsonify({"error": "Request body must be a valid JSON object"}), 400
+
+    password = data.get("password", "")
+    pin = data.get("pin", "")
+    confirm_pin = data.get("confirm_pin", data.get("confirmPin", ""))
+
+    success, error = PaymentService.set_user_pin(
+        user_id=user_id,
+        current_password=password,
+        new_pin=pin,
+        confirm_pin=confirm_pin,
+    )
+
+    if not success:
+        return jsonify({"error": error}), 400
+
+    return jsonify({
+        "message": "Payment PIN set successfully. You can now use your PIN to authenticate UPI payments.",
+        "is_pin_set": True,
+    }), 200
+
+
+@auth_bp.route("/payment-pin/status", methods=["GET"])
+@jwt_required()
+def get_payment_pin_status():
+    """
+    Get user payment PIN configuration status and lockout state.
+    """
+    from app.extensions import db
+    from app.models.user import User
+    user_id = int(get_jwt_identity())
+    user = db.session.get(User, user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    return jsonify({
+        "is_pin_set": bool(user.is_pin_set),
+        "is_pin_locked": user.is_pin_locked,
+        "pin_failed_attempts": user.pin_failed_attempts,
+    }), 200
+
+

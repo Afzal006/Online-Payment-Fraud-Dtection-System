@@ -23,14 +23,14 @@
     <table class="table-custom">
       <thead>
         <tr>
-          <th>Tx ID</th>
-          <th>Type</th>
+          <th>Ref ID / Tx</th>
+          <th>Method / Type</th>
           <th>Amount (₹)</th>
           <th>Recipient</th>
           <th>Risk Assessment</th>
           <th>Status</th>
           <th>Timestamp</th>
-          <th>Explain AI (SHAP)</th>
+          <th>Explain AI</th>
         </tr>
       </thead>
       <tbody id="history-tx-tbody">
@@ -72,12 +72,23 @@
       const row = document.createElement('tr');
       const timeStr = tx.created_at ? new Date(tx.created_at).toLocaleString() : 'N/A';
       const riskBadge = `badge-risk badge-risk-${(tx.risk_level || 'LOW').toLowerCase()}`;
+      const methodLabel = tx.payment_method ? tx.payment_method.replace(/_/g, ' ') : 'UPI';
+      const refLabel = tx.reference_id || `#${tx.id}`;
 
       row.innerHTML = `
-        <td style="font-weight: 700; color: #fff;">#${tx.id}</td>
-        <td><span style="font-weight: 600;">${tx.type}</span></td>
+        <td>
+          <div style="font-weight: 700; color: #fff; font-family: monospace; font-size: 0.85rem;">${refLabel}</div>
+          <div style="font-size: 0.7rem; color: var(--text-dim);">ID: #${tx.id}</div>
+        </td>
+        <td>
+          <div style="font-weight: 600; color: #fff;">${tx.type}</div>
+          <div style="font-size: 0.7rem; color: var(--primary);">${methodLabel}</div>
+        </td>
         <td style="font-weight: 700; color: #fff;">₹${parseFloat(tx.amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-        <td style="color: var(--text-muted); font-size: 0.85rem;">${tx.name_dest || 'N/A'}</td>
+        <td style="color: var(--text-muted); font-size: 0.85rem;">
+          <div style="font-weight: 600; color: #fff;">${tx.destination_name || tx.name_dest || 'N/A'}</div>
+          <div style="font-size: 0.75rem; color: var(--text-dim); font-family: monospace;">${tx.destination_upi_id || ''}</div>
+        </td>
         <td><span class="${riskBadge}">${tx.risk_level} (${tx.risk_score}/100)</span></td>
         <td>
           <span style="font-weight: 600; color: ${tx.status === 'APPROVED' ? '#34D399' : (tx.status === 'REJECTED' ? '#F87171' : '#FBBF24')};">

@@ -75,3 +75,54 @@ def get_transaction_details(tx_id: int):
     data = tx.to_dict()
     data["explanation"] = json.loads(tx.explanation_json) if tx.explanation_json else None
     return jsonify(data), 200
+
+
+@transaction_bp.route("/resolve-recipient", methods=["POST"])
+@jwt_required()
+def resolve_recipient():
+    """
+    Resolve payment recipient from UPI ID, 10-digit mobile number, or QR string.
+    """
+    from app.services.payment_service import PaymentService
+    user_id = int(get_jwt_identity())
+    data = request.get_json(silent=True)
+    if not data or not isinstance(data, dict):
+        return jsonify({"error": "Request body must be a JSON object"}), 400
+
+    query = data.get("query") or data.get("recipient") or data.get("identifier") or ""
+    success, recipient_info, error_msg = PaymentService.resolve_recipient(
+        current_user_id=user_id,
+        query=str(query),
+    )
+
+    if not success:
+        return jsonify({"error": error_msg, "code": "RESOLUTION_FAILED"}), 400
+
+    return jsonify({
+        "success": True,
+        "recipient": recipient_info,
+    }), 200
+
+
+@transaction_bp.route("/parse-qr", methods=["POST"])
+@jwt_required()
+def parse_qr_code():
+    """
+    Parse and validate a standard UPI QR code URI payload.
+    """
+    from app.services.payment_service import PaymentService
+    data = request.get_json(silent=True)
+    if not data or not isinstance(data, dict):
+        return jsonify({"error": "Request body must be a JSON object"}), 400
+
+    qr_data = data.get("qr_data") or data.get("qrData") or data.get("qr") or ""
+    success, parsed_payload, error_msg = PaymentService.parse_upi_qr(str(qr_data))
+
+    if not success:
+        return jsonify({"error": error_msg, "code": "INVALID_QR"}), 400
+
+    return jsonify({
+        "success": True,
+        "parsed_qr": parsed_payload,
+    }), 200
+

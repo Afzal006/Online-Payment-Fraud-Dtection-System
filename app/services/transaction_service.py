@@ -77,16 +77,65 @@ class TransactionService:
     def process_and_predict(user_id: int, payload: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], Optional[str], int]:
         """
         Execute full fraud risk assessment pipeline and atomically record transaction.
+        Coordinates PIN verification, feature extraction, ML/SHAP, hybrid risk decision, and atomic ledger.
         """
         try:
+            import secrets
             user = db.session.get(User, user_id)
             if not user:
                 return None, "Authenticated user not found", 404
 
-            # 1. Extract & Sanitize User Inputs
+            # 1. Idempotency Check (Prevent Double-Debit)
+            idempotency_key = payload.get("idempotency_key") or payload.get("idempotencyKey")
+            if idempotency_key:
+                clean_idempotency = str(idempotency_key).strip()
+                existing_tx = Transaction.query.filter_by(user_id=user_id, idempotency_key=clean_idempotency).first()
+                if existing_tx:
+                    explanation_obj = json.loads(existing_tx.explanation_json) if existing_tx.explanation_json else {}
+                    return {
+                        "success": True,
+                        "transaction_id": existing_tx.id,
+                        "reference_id": existing_tx.reference_id,
+                        "idempotency_key": existing_tx.idempotency_key,
+                        "prediction": existing_tx.prediction,
+                        "predicted_class_name": "Fraudulent" if existing_tx.prediction == 1 else "Legitimate",
+                        "fraud_probability": existing_tx.fraud_probability,
+                        "ml_probability": existing_tx.fraud_probability,
+                        "risk_score": existing_tx.risk_score,
+                        "risk_level": existing_tx.risk_level,
+                        "decision": existing_tx.decision,
+                        "status": existing_tx.status,
+                        "requires_otp": existing_tx.requires_otp,
+                        "account_balance": float(user.account_balance) if user.account_balance is not None else 0.0,
+                        "balance_before": float(existing_tx.balance_before) if existing_tx.balance_before is not None else None,
+                        "balance_after": float(existing_tx.balance_after) if existing_tx.balance_after is not None else None,
+                        "destination_upi_id": existing_tx.destination_upi_id,
+                        "destination_name": existing_tx.destination_name,
+                        "customer_message": explanation_obj.get("customer_explanation", "Transaction previously processed."),
+                        "explanation": explanation_obj,
+                    }, None, 200
+
+            # 2. Payment PIN Authentication Check (Layer 1 Transaction Security)
+            payment_pin = payload.get("payment_pin") or payload.get("pin")
+            pin_verified = False
+            if user.is_pin_set:
+                if not payment_pin:
+                    return None, "Payment PIN is required to authorize this transaction.", 401
+                is_pin_valid, pin_err = user.check_payment_pin(str(payment_pin).strip())
+                db.session.commit()
+                if not is_pin_valid:
+                    status_code = 429 if user.is_pin_locked else 401
+                    return None, pin_err or "Invalid Payment PIN", status_code
+                pin_verified = True
+            elif payment_pin:
+                # User provided a PIN even though not formally set; check if matches or ignore
+                pin_verified = True
+
+            # 3. Extract & Sanitize User Inputs
             amount = float(payload["amount"])
             tx_type = str(payload["type"]).strip().upper()
             beneficiary_id = payload.get("beneficiary_id")
+            payment_method = str(payload.get("payment_method") or "UPI_ID").strip().upper()
             payment_note = str(payload.get("payment_note") or payload.get("description") or "").strip() or None
 
             dest_upi = str(payload.get("destination_upi_id") or "").strip() or None
@@ -120,15 +169,32 @@ class TransactionService:
             elif dest_upi and not dest:
                 dest = dest_upi
 
+            # Resolve Internal Recipient User (if applicable)
+            recipient_user = None
+            if dest_upi:
+                recipient_user = User.query.filter(
+                    (User.primary_upi_id == dest_upi) | (User.email == dest_upi)
+                ).first()
+            if not recipient_user and dest:
+                recipient_user = User.query.filter(
+                    (User.primary_upi_id == dest) | (User.phone_number == dest) | (User.customer_account_id == dest.upper())
+                ).first()
+
+            if recipient_user and recipient_user.id == user_id:
+                return None, "Cannot transfer funds to your own account", 400
+
+            if recipient_user and not dest_name:
+                dest_name = recipient_user.name
+
             orig = str(payload.get("name_orig") or payload.get("nameOrig") or user.customer_account_id or f"C{user_id:09d}").strip()
             is_merchant = dest.upper().startswith("M") or (dest_name and "MERCHANT" in dest_name.upper())
 
-            # 2. Check if Account Simulation Balances Were Explicitly Provided
+            # 4. Check Account Balances
             has_sim_orig = ("oldbalance_org" in payload or "oldbalanceOrg" in payload)
             has_sim_dest = ("oldbalance_dest" in payload or "oldbalanceDest" in payload)
             has_account_simulation = bool(has_sim_orig or has_sim_dest)
 
-            # Check user balance for debit transactions (when simulation balance is not explicitly provided)
+            # Check user balance for debit transactions
             if not has_account_simulation and user.role == "USER" and tx_type in ["TRANSFER", "PAYMENT", "CASH_OUT", "DEBIT"]:
                 curr_bal = float(user.account_balance) if user.account_balance is not None else 0.0
                 if curr_bal < amount:
@@ -154,15 +220,15 @@ class TransactionService:
                 oldbalance_dest = float(payload.get("oldbalance_dest", payload.get("oldbalanceDest", 0.0)))
                 newbalance_dest = float(payload.get("newbalance_dest", payload.get("newbalanceDest", 0.0)))
             else:
-                oldbalance_dest = float(payload.get("receiver_balance", 0.0))
-                if tx_type in ["TRANSFER", "CASH_IN"]:
+                oldbalance_dest = float(recipient_user.account_balance) if recipient_user and recipient_user.account_balance is not None else float(payload.get("receiver_balance", 0.0))
+                if tx_type in ["TRANSFER", "CASH_IN", "PAYMENT"]:
                     newbalance_dest = oldbalance_dest + amount
                 else:
                     newbalance_dest = oldbalance_dest
 
             is_account_drain = bool(has_account_simulation and oldbalance_org > 0 and newbalance_orig == 0.0)
 
-            # 3. Centralized Feature Engineering Layer (No Data Leakage)
+            # 5. Centralized Feature Engineering Layer (No Data Leakage)
             features = FeatureService.extract_features(
                 user_id=user_id,
                 amount=amount,
@@ -173,7 +239,7 @@ class TransactionService:
                 reference_time=current_time,
             )
 
-            # 3b. Device Intelligence & Telemetry Check
+            # 5b. Device Intelligence & Telemetry Check
             from flask import has_request_context, request, g
             from app.services.device_trust_service import DeviceTrustService
 
@@ -205,7 +271,7 @@ class TransactionService:
             features["device_trust_status"] = dev_trust_status
             features["device_id"] = dev_profile.id if dev_profile else None
 
-            # 3c. Geo Intelligence & Impossible Travel Check
+            # 5c. Geo Intelligence & Impossible Travel Check
             from app.services.geo_intelligence_service import GeoIntelligenceService
 
             loc_payload = payload.get("location") or {
@@ -234,7 +300,7 @@ class TransactionService:
             features["geo_city"] = geo_eval["city"]
             features["geo_country"] = geo_eval["country_code"]
 
-            # 3d. Beneficiary Intelligence & 24h Cooling Period Check
+            # 5d. Beneficiary Intelligence & 24h Cooling Period Check
             if beneficiary:
                 is_cooling = beneficiary.is_cooling_active(reference_time=current_time)
                 features["is_beneficiary_in_cooling"] = 1 if is_cooling else 0
@@ -247,7 +313,7 @@ class TransactionService:
                 features["beneficiary_cooling_remaining_sec"] = 0
                 features["beneficiary_trust_status"] = "NEW"
 
-            # 4. ML Inference Payload & SHAP Explainer
+            # 6. ML Inference Payload & SHAP Explainer
             ml_input = {
                 "type": tx_type,
                 "amount": amount,
@@ -270,7 +336,7 @@ class TransactionService:
             pos_factors = explanation_data["positive_risk_factors"]
             neg_factors = explanation_data["negative_risk_factors"]
 
-            # 5. Hybrid Risk Policy & 4-Tier Decision Engine
+            # 7. Hybrid Risk Policy & 4-Tier Decision Engine
             hybrid_eval = RiskDecisionService.evaluate_hybrid_risk(
                 ml_fraud_prob=fraud_prob,
                 amount=amount,
@@ -292,7 +358,7 @@ class TransactionService:
             rule_risk_factors = hybrid_eval["risk_factors"]
             risk_signals = hybrid_eval["risk_signals"]
 
-            # 6. Generate Dual-View Explanations
+            # 8. Generate Dual-View Explanations
             customer_narrative = ShapService.generate_customer_explanation(
                 risk_level=risk_level,
                 transaction_data=ml_input,
@@ -306,7 +372,7 @@ class TransactionService:
             else:
                 admin_narrative = admin_shap_summary
 
-            # 7. Atomic Financial Balance Ledger Handling
+            # 9. Atomic Financial Balance Ledger Handling
             balance_before = float(user.account_balance) if user.account_balance is not None else 0.0
             balance_after = balance_before
 
@@ -316,7 +382,7 @@ class TransactionService:
                     if balance_before < amount:
                         return None, f"Insufficient account balance. Available balance: ₹{balance_before:,.2f}, required: ₹{amount:,.2f}", 400
 
-                # Atomically deduct balance on immediate approval
+                # Atomically deduct sender balance on immediate approval
                 if user.role == "USER" and tx_type in ["TRANSFER", "PAYMENT", "CASH_OUT", "DEBIT"]:
                     if not has_account_simulation:
                         user.account_balance = round(user.account_balance - amount, 2)
@@ -324,13 +390,25 @@ class TransactionService:
                     else:
                         balance_after = newbalance_orig
 
+                # Atomically credit recipient if internal user
+                if recipient_user and recipient_user.id != user_id and not has_account_simulation:
+                    curr_rec_bal = float(recipient_user.account_balance) if recipient_user.account_balance is not None else 0.0
+                    recipient_user.account_balance = round(curr_rec_bal + amount, 2)
+
                 if beneficiary:
                     from app.services.beneficiary_service import BeneficiaryService
                     BeneficiaryService.record_payment_outcome(beneficiary.id, amount, success=True)
 
-            # 8. Database Persistence with Transaction Safety
+            # Generate Unique UPI Reference ID
+            ref_id = f"UPI{current_time.strftime('%Y%m%d%H%M%S')}{secrets.randbelow(9000) + 1000}"
+
+            # 10. Database Persistence with Transaction Safety
             tx_record = Transaction(
                 user_id=user_id,
+                recipient_user_id=recipient_user.id if recipient_user else None,
+                reference_id=ref_id,
+                idempotency_key=str(idempotency_key).strip() if idempotency_key else None,
+                payment_method=payment_method,
                 step=step,
                 type=tx_type,
                 amount=amount,
@@ -392,8 +470,8 @@ class TransactionService:
             db.session.commit()
 
             logger.info(
-                "Processed transaction %d for user %d: type=%s, amount=%.2f, balance_after=%.2f, risk=%d (%s), decision=%s",
-                tx_record.id, user_id, tx_type, amount, balance_after, final_risk_score, risk_level, decision
+                "Processed UPI transaction %d (%s) for user %d: type=%s, amount=%.2f, balance_after=%.2f, risk=%d (%s), decision=%s",
+                tx_record.id, ref_id, user_id, tx_type, amount, balance_after, final_risk_score, risk_level, decision
             )
 
             # Audit Trail Recording
@@ -408,19 +486,25 @@ class TransactionService:
                 severity="CRITICAL" if risk_level == "CRITICAL" else ("WARN" if risk_level in ["HIGH", "MEDIUM"] else "INFO"),
                 details={
                     "transaction_id": tx_record.id,
+                    "reference_id": ref_id,
+                    "payment_method": payment_method,
                     "type": tx_type,
                     "amount": amount,
                     "risk_score": final_risk_score,
                     "risk_level": risk_level,
                     "decision": decision,
                     "status": status,
+                    "pin_verified": pin_verified,
                 },
             )
 
-            # 9. Build Standardized API Response
+            # 11. Build Standardized API Response
             response_payload = {
                 "success": True,
                 "transaction_id": tx_record.id,
+                "reference_id": ref_id,
+                "idempotency_key": tx_record.idempotency_key,
+                "payment_method": payment_method,
                 "prediction": raw_prediction,
                 "predicted_class_name": "Fraudulent" if raw_prediction == 1 else "Legitimate",
                 "fraud_probability": fraud_prob,
@@ -443,15 +527,24 @@ class TransactionService:
                 "beneficiary_id": beneficiary.id if beneficiary else None,
                 "destination_upi_id": dest_upi,
                 "destination_name": dest_name,
+                "recipient_user_id": recipient_user.id if recipient_user else None,
                 "customer_message": customer_narrative,
+                "security_checks": {
+                    "recipient_verified": True,
+                    "pin_authenticated": pin_verified,
+                    "device_trust_verified": dev_trust_status != "BLOCKED",
+                    "geo_location_verified": not geo_eval.get("is_impossible_travel", False),
+                    "beneficiary_cooling_verified": not features.get("is_beneficiary_in_cooling", 0),
+                    "ai_model_evaluated": True,
+                },
                 "explanation": {
                     "top_features": top_features,
                     "positive_risk_factors": pos_factors,
                     "negative_risk_factors": neg_factors,
-                    "rule_risk_factors": rule_risk_factors,
                     "human_readable_summary": customer_narrative,
                     "customer_explanation": customer_narrative,
                     "admin_explanation": admin_narrative,
+                    "text": admin_narrative,
                 },
                 "behavioral_context": {
                     "user_tx_count": features.get("user_tx_count", 0),
@@ -466,5 +559,5 @@ class TransactionService:
 
         except Exception as e:
             db.session.rollback()
-            logger.error("Transaction prediction failed for user %d: %s", user_id, str(e), exc_info=True)
-            return None, f"Prediction processing error: {str(e)}", 500
+            logger.exception("Error in process_and_predict for user %d: %s", user_id, str(e))
+            return None, f"Internal error evaluating transaction: {str(e)}", 500

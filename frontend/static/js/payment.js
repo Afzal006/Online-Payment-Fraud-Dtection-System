@@ -1,9 +1,20 @@
 /**
- * Payment Simulator & Real-Time Decision Modal Controller
+ * FraudShield AI - UPI Payment Simulator & Real-Time Decision Controller
+ *
+ * Implements:
+ * 1. Tabbed Payment Options: Scan QR, UPI ID / VPA, Mobile Number, Saved Beneficiaries
+ * 2. Real-Time Dynamic Payee Resolution
+ * 3. 6-Digit Payment PIN Authentication & Secure Lockout UX
+ * 4. Idempotency Key Generation (Double-Debit Protection)
+ * 5. Integrated Real-Time Hybrid AI Fraud Scoring & SHAP Explanations
  */
 
 let userAvailableBalance = 0;
 let userBeneficiaries = [];
+let resolvedRecipient = null;
+let currentPaymentMethod = 'QR_CODE';
+let isUserPinConfigured = false;
+let pendingPaymentPayload = null;
 let lastPredictionData = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -13,127 +24,34 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   await loadSenderProfile();
-  await loadBeneficiariesDropdown();
+  await checkPinStatus();
+  await loadBeneficiariesList();
 
-  const paymentForm = document.getElementById('payment-form');
-  const resultModal = document.getElementById('result-modal-overlay');
-  const btnCloseResult = document.getElementById('btn-close-result-modal');
-  const btnWhyFlagged = document.getElementById('btn-why-flagged');
-  const btnProceedOtp = document.getElementById('btn-proceed-otp');
-
-  // Check URL query parameters for pre-selected beneficiary
+  // Check URL query parameters for mode or pre-selected beneficiary
   const urlParams = new URLSearchParams(window.location.search);
+  const modeParam = urlParams.get('mode');
   const preSelectedBId = urlParams.get('b');
+
+  if (modeParam && ['qr', 'upi', 'mobile', 'saved'].includes(modeParam)) {
+    switchPaymentTab(modeParam);
+  } else {
+    // Set default QR preset on page load for immediate demo
+    loadQrPreset('upi://pay?pa=merchant@fraudshield&pn=SuperMart%20POS&am=1250.00&cu=INR&tn=Groceries');
+  }
+
   if (preSelectedBId) {
-    const select = document.getElementById('tx-beneficiary-select');
+    switchPaymentTab('saved');
+    const select = document.getElementById('select-saved-beneficiary');
     if (select) {
       select.value = preSelectedBId;
-      handleBeneficiarySelectChange();
+      handleSavedBeneficiaryChange();
     }
   }
 
-  if (paymentForm) {
-    paymentForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-
-      const type = document.getElementById('tx-type').value;
-      const amount = parseFloat(document.getElementById('tx-amount').value);
-      const bSelect = document.getElementById('tx-beneficiary-select');
-      const bVal = bSelect ? bSelect.value : '';
-      const destInput = document.getElementById('tx-destination');
-      const noteInput = document.getElementById('tx-note');
-      const submitBtn = document.getElementById('btn-submit-payment');
-      const formError = document.getElementById('payment-form-error');
-
-      // Balance validation
-      if (isNaN(amount) || amount <= 0) {
-        if (formError) {
-          formError.textContent = 'Please enter a valid transfer amount greater than zero.';
-          formError.style.display = 'block';
-        }
-        return;
-      }
-
-      if (type !== 'CASH_IN' && userAvailableBalance > 0 && amount > userAvailableBalance) {
-        if (formError) {
-          formError.textContent = `Insufficient funds: Transfer amount (₹${amount.toLocaleString('en-IN')}) exceeds available balance (₹${userAvailableBalance.toLocaleString('en-IN')}).`;
-          formError.style.display = 'block';
-        }
-        return;
-      }
-
-      let beneficiaryId = null;
-      let destinationUpi = null;
-      let destinationName = null;
-      let destination = '';
-
-      if (bVal && bVal !== 'custom') {
-        const selectedB = userBeneficiaries.find(b => b.id === parseInt(bVal));
-        if (selectedB) {
-          beneficiaryId = selectedB.id;
-          destinationUpi = selectedB.beneficiary_upi_id;
-          destinationName = selectedB.beneficiary_name;
-          destination = selectedB.beneficiary_upi_id;
-        }
-      } else {
-        destination = destInput ? destInput.value.trim() : '';
-        if (!destination) {
-          if (formError) {
-            formError.textContent = 'Please enter a recipient UPI ID or account identifier.';
-            formError.style.display = 'block';
-          }
-          return;
-        }
-        if (destination.includes('@')) {
-          destinationUpi = destination;
-        }
-      }
-
-      // Optional balance simulation fields
-      const oldOrigInput = document.getElementById('tx-oldbalance-org');
-      const newOrigInput = document.getElementById('tx-newbalance-orig');
-      const oldOrig = oldOrigInput && oldOrigInput.value.trim() !== '' ? parseFloat(oldOrigInput.value) : null;
-      const newOrig = newOrigInput && newOrigInput.value.trim() !== '' ? parseFloat(newOrigInput.value) : null;
-
-      submitBtn.disabled = true;
-      submitBtn.innerHTML = '<span>Evaluating Risk with Hybrid AI Engine...</span>';
-      if (formError) formError.style.display = 'none';
-
-      const payload = {
-        type,
-        amount,
-        destination,
-      };
-
-      if (beneficiaryId) payload.beneficiary_id = beneficiaryId;
-      if (destinationUpi) payload.destination_upi_id = destinationUpi;
-      if (destinationName) payload.destination_name = destinationName;
-      if (noteInput && noteInput.value.trim()) payload.payment_note = noteInput.value.trim();
-
-      if (oldOrig !== null && !isNaN(oldOrig)) payload.oldbalance_org = oldOrig;
-      if (newOrig !== null && !isNaN(newOrig)) payload.newbalance_orig = newOrig;
-
-      const res = await window.api.submitTransaction(payload);
-      submitBtn.disabled = false;
-      submitBtn.innerHTML = '<span>Submit & Verify Payment</span>';
-
-      if (res && res.ok && res.data.success) {
-        lastPredictionData = res.data;
-        if (res.data.account_balance !== undefined) {
-          userAvailableBalance = res.data.account_balance;
-          updateBalanceDisplay(userAvailableBalance);
-        }
-        showResultModal(res.data);
-      } else {
-        const errorMsg = (res && res.data && res.data.error) || 'Failed to process payment.';
-        if (formError) {
-          formError.textContent = errorMsg;
-          formError.style.display = 'block';
-        }
-        showToast(errorMsg, 'error');
-      }
-    });
-  }
+  // Result modal close & SHAP drawer handlers
+  const btnCloseResult = document.getElementById('btn-close-result-modal');
+  const resultModal = document.getElementById('result-modal-overlay');
+  const btnWhyFlagged = document.getElementById('btn-why-flagged');
 
   if (btnCloseResult && resultModal) {
     btnCloseResult.addEventListener('click', () => {
@@ -154,6 +72,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 });
 
+// ==========================================
+// 1. Sender Profile & PIN State Management
+// ==========================================
+
 async function loadSenderProfile() {
   const res = await window.api.getProfile();
   if (res && res.ok && res.data && res.data.profile) {
@@ -163,7 +85,7 @@ async function loadSenderProfile() {
     const upiInfo = document.getElementById('sender-upi-info');
 
     if (accountInfo) accountInfo.textContent = `${p.name} (${p.customer_account_id || `FS-${100000 + p.id}`})`;
-    if (upiInfo) upiInfo.textContent = `UPI: ${p.primary_upi_id || `${p.email.split('@')[0]}@fraudshield`}`;
+    if (upiInfo) upiInfo.textContent = `UPI VPA: ${p.primary_upi_id || `${p.email.split('@')[0]}@fraudshield`}`;
     updateBalanceDisplay(userAvailableBalance);
   }
 }
@@ -175,16 +97,96 @@ function updateBalanceDisplay(bal) {
   }
 }
 
-async function loadBeneficiariesDropdown() {
+async function checkPinStatus() {
+  const res = await window.api.getPaymentPinStatus();
+  const pinBtnText = document.getElementById('pin-status-btn-text');
+  if (res && res.ok && res.data) {
+    isUserPinConfigured = !!res.data.is_pin_set;
+    if (pinBtnText) {
+      pinBtnText.textContent = isUserPinConfigured ? 'Change Payment PIN' : 'Set Payment PIN';
+    }
+  }
+}
+
+// ==========================================
+// 2. Tabbed Payment Navigation
+// ==========================================
+
+function switchPaymentTab(tabName) {
+  const tabs = ['qr', 'upi', 'mobile', 'saved'];
+  tabs.forEach((t) => {
+    const btn = document.getElementById(`tab-${t}`);
+    const content = document.getElementById(`tab-content-${t}`);
+    if (btn) {
+      if (t === tabName) {
+        btn.classList.add('active');
+        btn.style.borderBottomColor = 'var(--primary)';
+        btn.style.color = '#fff';
+      } else {
+        btn.classList.remove('active');
+        btn.style.borderBottomColor = 'transparent';
+        btn.style.color = 'var(--text-muted)';
+      }
+    }
+    if (content) {
+      content.style.display = t === tabName ? 'block' : 'none';
+    }
+  });
+
+  if (tabName === 'qr') currentPaymentMethod = 'QR_CODE';
+  else if (tabName === 'upi') currentPaymentMethod = 'UPI_ID';
+  else if (tabName === 'mobile') currentPaymentMethod = 'MOBILE_NUMBER';
+  else if (tabName === 'saved') currentPaymentMethod = 'SAVED_BENEFICIARY';
+}
+
+// ==========================================
+// 3. Recipient Resolution Handlers
+// ==========================================
+
+async function handleScanQrSubmit() {
+  const qrInput = document.getElementById('qr-input-text');
+  const qrData = qrInput ? qrInput.value.trim() : '';
+  if (!qrData) {
+    showFormError('Please enter or paste a UPI QR URI string.');
+    return;
+  }
+  await resolveAndDisplayRecipient(qrData, 'QR_CODE');
+}
+
+function loadQrPreset(qrUri) {
+  const qrInput = document.getElementById('qr-input-text');
+  if (qrInput) qrInput.value = qrUri;
+  resolveAndDisplayRecipient(qrUri, 'QR_CODE');
+}
+
+async function handleResolveUpiSubmit() {
+  const upiInput = document.getElementById('input-upi-id');
+  const upiVal = upiInput ? upiInput.value.trim() : '';
+  if (!upiVal) {
+    showFormError('Please enter a payee UPI ID (e.g. name@fraudshield or merchant@upi).');
+    return;
+  }
+  await resolveAndDisplayRecipient(upiVal, 'UPI_ID');
+}
+
+async function handleResolveMobileSubmit() {
+  const mobileInput = document.getElementById('input-mobile-number');
+  const mobileVal = mobileInput ? mobileInput.value.trim() : '';
+  if (!mobileVal || mobileVal.length < 10) {
+    showFormError('Please enter a valid 10-digit mobile number.');
+    return;
+  }
+  await resolveAndDisplayRecipient(mobileVal, 'MOBILE_NUMBER');
+}
+
+async function loadBeneficiariesList() {
   const res = await window.api.getBeneficiaries();
-  const select = document.getElementById('tx-beneficiary-select');
+  const select = document.getElementById('select-saved-beneficiary');
   if (!select) return;
 
   if (res && res.ok && res.data && Array.isArray(res.data.beneficiaries)) {
     userBeneficiaries = res.data.beneficiaries;
-
-    // Reset options
-    select.innerHTML = '<option value="">-- Choose from Saved Beneficiaries --</option>';
+    select.innerHTML = '<option value="">-- Choose Beneficiary --</option>';
     userBeneficiaries.forEach((b) => {
       const opt = document.createElement('option');
       opt.value = b.id;
@@ -192,49 +194,359 @@ async function loadBeneficiariesDropdown() {
       opt.textContent = `👤 ${b.beneficiary_name}${nick} — ${b.beneficiary_upi_id}`;
       select.appendChild(opt);
     });
-
-    const customOpt = document.createElement('option');
-    customOpt.value = 'custom';
-    customOpt.textContent = '✏️ Enter Custom UPI ID or Account Identifier';
-    select.appendChild(customOpt);
   }
 }
 
-function handleBeneficiarySelectChange() {
-  const select = document.getElementById('tx-beneficiary-select');
-  const customGroup = document.getElementById('custom-destination-group');
-  const preview = document.getElementById('beneficiary-preview-card');
-  const prevName = document.getElementById('preview-b-name');
-  const prevUpi = document.getElementById('preview-b-upi');
+function handleSavedBeneficiaryChange() {
+  const select = document.getElementById('select-saved-beneficiary');
+  if (!select || !select.value) return;
 
-  if (!select) return;
+  const selectedB = userBeneficiaries.find((b) => b.id === parseInt(select.value));
+  if (selectedB) {
+    resolvedRecipient = {
+      resolved: true,
+      recipient_id: null,
+      recipient_name: selectedB.beneficiary_name,
+      recipient_upi_id: selectedB.beneficiary_upi_id,
+      recipient_phone: selectedB.beneficiary_phone,
+      account_type: 'SAVED_BENEFICIARY',
+      is_saved_beneficiary: true,
+      beneficiary_id: selectedB.id,
+      trust_status: selectedB.trust_status,
+      is_cooling_active: selectedB.is_cooling_active,
+    };
+    displayRecipientCard(resolvedRecipient);
+  }
+}
 
-  const val = select.value;
-  if (val === 'custom') {
-    if (customGroup) customGroup.style.display = 'block';
-    if (preview) preview.style.display = 'none';
-  } else if (val) {
-    const selectedB = userBeneficiaries.find(b => b.id === parseInt(val));
-    if (selectedB) {
-      if (customGroup) customGroup.style.display = 'none';
-      if (preview) {
-        if (prevName) prevName.textContent = selectedB.beneficiary_name + (selectedB.nickname ? ` (${selectedB.nickname})` : '');
-        if (prevUpi) prevUpi.textContent = selectedB.beneficiary_upi_id;
-        preview.style.display = 'block';
-      }
+async function resolveAndDisplayRecipient(query, method) {
+  hideFormError();
+  const res = await window.api.resolveRecipient(query);
+  if (res && res.ok && res.data && res.data.recipient) {
+    resolvedRecipient = res.data.recipient;
+    currentPaymentMethod = method;
+    displayRecipientCard(resolvedRecipient);
+
+    // If QR payload specified amount, populate it
+    if (resolvedRecipient.suggested_amount) {
+      const amountInput = document.getElementById('tx-amount');
+      if (amountInput) amountInput.value = resolvedRecipient.suggested_amount;
+    }
+    if (resolvedRecipient.suggested_note) {
+      const noteInput = document.getElementById('tx-note');
+      if (noteInput) noteInput.value = resolvedRecipient.suggested_note;
+    }
+    showToast(`Recipient verified: ${resolvedRecipient.recipient_name}`, 'success');
+  } else {
+    resolvedRecipient = null;
+    const errMsg = (res && res.data && res.data.error) || `Could not resolve payee '${query}'.`;
+    showFormError(errMsg);
+    const card = document.getElementById('recipient-confirmed-card');
+    if (card) card.style.display = 'none';
+  }
+}
+
+function displayRecipientCard(rec) {
+  const card = document.getElementById('recipient-confirmed-card');
+  const nameEl = document.getElementById('rec-name');
+  const upiEl = document.getElementById('rec-upi');
+  const typeEl = document.getElementById('rec-type-badge');
+  const avatarEl = document.getElementById('rec-avatar');
+  const coolingBanner = document.getElementById('rec-cooling-banner');
+
+  if (!card) return;
+
+  if (nameEl) nameEl.textContent = rec.recipient_name;
+  if (upiEl) upiEl.textContent = rec.recipient_upi_id;
+  if (typeEl) {
+    let typeLabel = 'Internal User';
+    if (rec.account_type === 'MERCHANT') typeLabel = '🏪 Verified Merchant POS';
+    else if (rec.account_type === 'SAVED_BENEFICIARY') typeLabel = '⭐ Saved Beneficiary';
+    else if (rec.account_type === 'EXTERNAL_UPI') typeLabel = '🌐 External UPI Handle';
+    typeEl.textContent = `${typeLabel} • Trust: ${rec.trust_status || 'NEW'}`;
+  }
+
+  if (avatarEl) {
+    avatarEl.textContent = rec.account_type === 'MERCHANT' ? '🏪' : '👤';
+  }
+
+  if (coolingBanner) {
+    coolingBanner.style.display = rec.is_cooling_active ? 'block' : 'none';
+  }
+
+  card.style.display = 'block';
+}
+
+function setAmountChip(val) {
+  const amountInput = document.getElementById('tx-amount');
+  if (amountInput) {
+    amountInput.value = val.toFixed(2);
+  }
+}
+
+function showFormError(msg) {
+  const el = document.getElementById('payment-form-error');
+  if (el) {
+    el.textContent = msg;
+    el.style.display = 'block';
+  }
+}
+
+function hideFormError() {
+  const el = document.getElementById('payment-form-error');
+  if (el) el.style.display = 'none';
+}
+
+// ==========================================
+// 4. Quick Test Scenarios
+// ==========================================
+
+function loadUpiScenario(scenario) {
+  const amountInput = document.getElementById('tx-amount');
+  const typeSelect = document.getElementById('tx-type');
+  const oldOrig = document.getElementById('tx-oldbalance-org');
+  const newOrig = document.getElementById('tx-newbalance-orig');
+
+  if (oldOrig) oldOrig.value = '';
+  if (newOrig) newOrig.value = '';
+
+  if (scenario === 'low') {
+    switchPaymentTab('qr');
+    loadQrPreset('upi://pay?pa=coffee@fraudshield&pn=Artisan%20Coffee&am=150.00&cu=INR&tn=Cappuccino');
+    if (typeSelect) typeSelect.value = 'PAYMENT';
+    if (amountInput) amountInput.value = '150.00';
+  } else if (scenario === 'merchant') {
+    switchPaymentTab('qr');
+    loadQrPreset('upi://pay?pa=merchant@fraudshield&pn=SuperMart%20POS&am=1250.00&cu=INR&tn=Groceries');
+    if (typeSelect) typeSelect.value = 'PAYMENT';
+    if (amountInput) amountInput.value = '1250.00';
+  } else if (scenario === '92k') {
+    switchPaymentTab('upi');
+    const upiInput = document.getElementById('input-upi-id');
+    if (upiInput) upiInput.value = 'priya@fraudshield';
+    resolveAndDisplayRecipient('priya@fraudshield', 'UPI_ID');
+    if (typeSelect) typeSelect.value = 'TRANSFER';
+    if (amountInput) amountInput.value = '92000.00';
+  } else if (scenario === '250k') {
+    switchPaymentTab('upi');
+    const upiInput = document.getElementById('input-upi-id');
+    if (upiInput) upiInput.value = 'unknown@fraudshield';
+    resolveAndDisplayRecipient('unknown@fraudshield', 'UPI_ID');
+    if (typeSelect) typeSelect.value = 'TRANSFER';
+    if (amountInput) amountInput.value = '250001.00';
+  } else if (scenario === 'drain') {
+    switchPaymentTab('qr');
+    loadQrPreset('upi://pay?pa=atm.drain@upi&pn=FastCash%20ATM&am=750000.00&cu=INR&tn=CashOut');
+    if (typeSelect) typeSelect.value = 'CASH_OUT';
+    if (amountInput) amountInput.value = '750000.00';
+    if (oldOrig) oldOrig.value = '750000.00';
+    if (newOrig) newOrig.value = '0.00';
+  }
+}
+
+// ==========================================
+// 5. Payment Review & PIN Modal UX
+// ==========================================
+
+function openPaymentReviewModal() {
+  hideFormError();
+
+  if (!resolvedRecipient) {
+    showFormError('Please resolve or select a verified recipient first.');
+    return;
+  }
+
+  const type = document.getElementById('tx-type').value;
+  const amount = parseFloat(document.getElementById('tx-amount').value);
+  const note = document.getElementById('tx-note').value.trim();
+
+  if (isNaN(amount) || amount <= 0) {
+    showFormError('Please enter a valid transfer amount greater than ₹0.00.');
+    return;
+  }
+
+  if (type !== 'CASH_IN' && userAvailableBalance > 0 && amount > userAvailableBalance) {
+    showFormError(`Insufficient account balance: Transfer amount (₹${amount.toLocaleString('en-IN')}) exceeds available funds (₹${userAvailableBalance.toLocaleString('en-IN')}).`);
+    return;
+  }
+
+  // Check optional simulation balances
+  const oldOrigInput = document.getElementById('tx-oldbalance-org');
+  const newOrigInput = document.getElementById('tx-newbalance-orig');
+  const oldOrig = oldOrigInput && oldOrigInput.value.trim() !== '' ? parseFloat(oldOrigInput.value) : null;
+  const newOrig = newOrigInput && newOrigInput.value.trim() !== '' ? parseFloat(newOrigInput.value) : null;
+
+  // Generate unique client-side idempotency key
+  const idempotencyKey = `UPI-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+
+  pendingPaymentPayload = {
+    type,
+    amount,
+    idempotency_key: idempotencyKey,
+    payment_method: currentPaymentMethod,
+    destination: resolvedRecipient.recipient_upi_id,
+    destination_upi_id: resolvedRecipient.recipient_upi_id,
+    destination_name: resolvedRecipient.recipient_name,
+    beneficiary_id: resolvedRecipient.beneficiary_id || null,
+    recipient_user_id: resolvedRecipient.recipient_id || null,
+    payment_note: note || null,
+  };
+
+  if (oldOrig !== null && !isNaN(oldOrig)) pendingPaymentPayload.oldbalance_org = oldOrig;
+  if (newOrig !== null && !isNaN(newOrig)) pendingPaymentPayload.newbalance_orig = newOrig;
+
+  // Prompt for PIN or PIN Setup
+  if (!isUserPinConfigured) {
+    openPinSetupModal();
+    showToast('Please set your 4-6 digit Payment PIN to authenticate UPI payments.', 'info');
+    return;
+  }
+
+  // Open PIN Modal
+  const modal = document.getElementById('pin-modal-overlay');
+  const payAmtEl = document.getElementById('modal-pay-amount');
+  const payRecEl = document.getElementById('modal-pay-recipient');
+  const pinInput = document.getElementById('modal-pin-input');
+  const pinErr = document.getElementById('pin-error-banner');
+
+  if (payAmtEl) payAmtEl.textContent = `₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+  if (payRecEl) payRecEl.textContent = resolvedRecipient.recipient_name;
+  if (pinInput) {
+    pinInput.value = '';
+    setTimeout(() => pinInput.focus(), 150);
+  }
+  if (pinErr) pinErr.style.display = 'none';
+
+  if (modal) modal.style.display = 'flex';
+}
+
+function closePinModal() {
+  const modal = document.getElementById('pin-modal-overlay');
+  if (modal) modal.style.display = 'none';
+}
+
+async function executeFinalPayment() {
+  const pinInput = document.getElementById('modal-pin-input');
+  const pinErr = document.getElementById('pin-error-banner');
+  const submitBtn = document.getElementById('btn-submit-pin-payment');
+  const pin = pinInput ? pinInput.value.trim() : '';
+
+  if (!pin || pin.length < 4) {
+    if (pinErr) {
+      pinErr.textContent = 'Please enter your 4-6 digit payment PIN.';
+      pinErr.style.display = 'block';
+    }
+    return;
+  }
+
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span>Evaluating AI Fraud Defense...</span>';
+  }
+
+  pendingPaymentPayload.payment_pin = pin;
+
+  const res = await window.api.submitTransaction(pendingPaymentPayload);
+
+  if (submitBtn) {
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = '<span>Confirm & Submit Payment</span>';
+  }
+
+  if (res && res.ok && res.data.success) {
+    closePinModal();
+    lastPredictionData = res.data;
+    if (res.data.account_balance !== undefined) {
+      userAvailableBalance = res.data.account_balance;
+      updateBalanceDisplay(userAvailableBalance);
+    }
+    showResultModal(res.data);
+  } else {
+    const errorMsg = (res && res.data && res.data.error) || 'Transaction failed.';
+    if (pinErr) {
+      pinErr.textContent = errorMsg;
+      pinErr.style.display = 'block';
+    }
+    showToast(errorMsg, 'error');
+  }
+}
+
+// ==========================================
+// 6. PIN Setup Modal Handlers
+// ==========================================
+
+function openPinSetupModal() {
+  const modal = document.getElementById('pin-setup-modal-overlay');
+  const errBanner = document.getElementById('pin-setup-error-banner');
+  if (errBanner) errBanner.style.display = 'none';
+  if (modal) modal.style.display = 'flex';
+}
+
+function closePinSetupModal() {
+  const modal = document.getElementById('pin-setup-modal-overlay');
+  if (modal) modal.style.display = 'none';
+}
+
+async function handlePinSetupSubmit(e) {
+  e.preventDefault();
+  const password = document.getElementById('pin-account-password').value;
+  const pin = document.getElementById('new-pin-input').value;
+  const confirmPin = document.getElementById('confirm-pin-input').value;
+  const errBanner = document.getElementById('pin-setup-error-banner');
+  const submitBtn = document.getElementById('btn-save-pin');
+
+  if (pin !== confirmPin) {
+    if (errBanner) {
+      errBanner.textContent = 'PIN and Confirm PIN do not match.';
+      errBanner.style.display = 'block';
+    }
+    return;
+  }
+
+  submitBtn.disabled = true;
+  submitBtn.innerHTML = '<span>Securing PIN...</span>';
+
+  const res = await window.api.setPaymentPin(password, pin, confirmPin);
+  submitBtn.disabled = false;
+  submitBtn.innerHTML = '<span>Save Payment PIN</span>';
+
+  if (res && res.ok) {
+    showToast('Payment PIN configured successfully!', 'success');
+    closePinSetupModal();
+    await checkPinStatus();
+    // If user had clicked to pay, resume flow
+    if (pendingPaymentPayload) {
+      openPaymentReviewModal();
     }
   } else {
-    if (customGroup) customGroup.style.display = 'none';
-    if (preview) preview.style.display = 'none';
+    const errorMsg = (res && res.data && res.data.error) || 'Failed to set Payment PIN.';
+    if (errBanner) {
+      errBanner.textContent = errorMsg;
+      errBanner.style.display = 'block';
+    }
   }
 }
+
+// ==========================================
+// 7. Decision Result Screen & Checklist
+// ==========================================
 
 function showResultModal(data) {
   const resultModal = document.getElementById('result-modal-overlay');
   const btnProceedOtp = document.getElementById('btn-proceed-otp');
   if (!resultModal) return;
 
-  // Fill Modal Data
+  const receiptBanner = document.getElementById('res-receipt-banner');
+  const receiptIcon = document.getElementById('res-receipt-icon');
+  const receiptTitle = document.getElementById('res-receipt-title');
+  const receiptAmount = document.getElementById('res-receipt-amount');
+  const receiptRecipient = document.getElementById('res-receipt-recipient');
+  const receiptRefId = document.getElementById('res-receipt-ref-id');
+  const balanceBox = document.getElementById('res-balance-box');
+  const prevBalEl = document.getElementById('res-prev-balance');
+  const newBalEl = document.getElementById('res-new-balance');
+  const securityDetails = document.getElementById('res-security-details');
+
   const statusBadge = document.getElementById('res-status-badge');
   const riskScoreVal = document.getElementById('res-risk-score');
   const fraudProbVal = document.getElementById('res-fraud-prob');
@@ -243,12 +555,91 @@ function showResultModal(data) {
   const factorsContainer = document.getElementById('res-risk-factors-container');
   const factorsList = document.getElementById('res-risk-factors-list');
 
+  const payAmt = pendingPaymentPayload ? pendingPaymentPayload.amount : (data.amount || 0);
+  const payeeName = data.destination_name || (resolvedRecipient && resolvedRecipient.recipient_name) || 'Payee';
+  const payeeUpi = data.destination_upi_id || (resolvedRecipient && resolvedRecipient.recipient_upi_id) || '';
+
+  if (receiptAmount) {
+    receiptAmount.textContent = `₹${parseFloat(payAmt).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+  if (receiptRecipient) {
+    receiptRecipient.textContent = `Paid to ${payeeName} (${payeeUpi})`;
+  }
+  if (receiptRefId) {
+    receiptRefId.textContent = `UPI Ref: ${data.reference_id || `UPI${Date.now()}`}`;
+  }
+
+  // Visual state configuration
+  if (data.status === 'APPROVED') {
+    if (receiptBanner) {
+      receiptBanner.style.background = 'rgba(52, 211, 153, 0.12)';
+      receiptBanner.style.borderColor = 'rgba(52, 211, 153, 0.3)';
+    }
+    if (receiptIcon) {
+      receiptIcon.textContent = '✓';
+      receiptIcon.style.color = '#34D399';
+    }
+    if (receiptTitle) {
+      receiptTitle.textContent = 'Payment Successful';
+      receiptTitle.style.color = '#fff';
+    }
+    if (receiptAmount) receiptAmount.style.color = '#34D399';
+
+    if (balanceBox) {
+      balanceBox.style.display = 'flex';
+      if (prevBalEl) prevBalEl.textContent = `₹${parseFloat(data.balance_before !== undefined ? data.balance_before : userAvailableBalance + payAmt).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      if (newBalEl) newBalEl.textContent = `₹${parseFloat(data.balance_after !== undefined ? data.balance_after : userAvailableBalance).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+    if (securityDetails) securityDetails.open = false;
+  } else if (data.requires_otp || data.status === 'OTP_REQUIRED' || data.status === 'PENDING_OTP') {
+    if (receiptBanner) {
+      receiptBanner.style.background = 'rgba(251, 191, 36, 0.12)';
+      receiptBanner.style.borderColor = 'rgba(251, 191, 36, 0.3)';
+    }
+    if (receiptIcon) {
+      receiptIcon.textContent = '🔐';
+      receiptIcon.style.color = '#FBBF24';
+    }
+    if (receiptTitle) {
+      receiptTitle.textContent = 'Additional Verification Required';
+      receiptTitle.style.color = '#FBBF24';
+    }
+    if (receiptAmount) receiptAmount.style.color = '#FBBF24';
+
+    if (balanceBox) {
+      balanceBox.style.display = 'block';
+      balanceBox.innerHTML = '<div style="color: #FBBF24; text-align: center; font-size: 0.85rem;">🛡️ Funds remain protected in escrow until one-time code is verified. No amount debited yet.</div>';
+    }
+    if (securityDetails) securityDetails.open = true;
+  } else {
+    // REJECTED / UNDER_REVIEW / BLOCKED
+    if (receiptBanner) {
+      receiptBanner.style.background = 'rgba(239, 68, 68, 0.12)';
+      receiptBanner.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+    }
+    if (receiptIcon) {
+      receiptIcon.textContent = '✕';
+      receiptIcon.style.color = '#F87171';
+    }
+    if (receiptTitle) {
+      receiptTitle.textContent = 'Payment Not Completed';
+      receiptTitle.style.color = '#F87171';
+    }
+    if (receiptAmount) receiptAmount.style.color = '#F87171';
+
+    if (balanceBox) {
+      balanceBox.style.display = 'block';
+      balanceBox.innerHTML = '<div style="color: #FCA5A5; text-align: center; font-size: 0.85rem;">🛡️ No amount was deducted from your balance.</div>';
+    }
+    if (securityDetails) securityDetails.open = true;
+  }
+
   if (riskScoreVal) riskScoreVal.textContent = `${data.risk_score}/100`;
   if (fraudProbVal) fraudProbVal.textContent = `${(data.fraud_probability * 100).toFixed(1)}%`;
   if (decisionText) decisionText.textContent = data.decision.replace(/_/g, ' ');
 
   if (statusBadge) {
-    statusBadge.textContent = `${data.risk_level} RISK - ${data.status.replace(/_/g, ' ')}`;
+    statusBadge.textContent = `${data.risk_level} RISK — ${data.status.replace(/_/g, ' ')}`;
     statusBadge.className = `badge-risk badge-risk-${data.risk_level.toLowerCase()}`;
   }
 
@@ -269,7 +660,7 @@ function showResultModal(data) {
   }
 
   if (narrativeText && data.explanation) {
-    narrativeText.textContent = data.explanation.human_readable_summary || 'Evaluated against security baseline.';
+    narrativeText.textContent = data.customer_message || data.explanation.customer_explanation || 'Payment evaluated against real-time baseline.';
   }
 
   // Configure OTP button visibility
@@ -293,7 +684,7 @@ async function triggerOtpChallenge(txId) {
   if (res && res.ok) {
     const devOtp = res.data._dev_simulated_otp || null;
     window.otpModal.open(txId, devOtp, async (updatedTx) => {
-      showToast(`Transaction #${updatedTx.id} status updated to ${updatedTx.status}`, 'success');
+      showToast(`Transaction #${updatedTx.id} approved!`, 'success');
       await loadSenderProfile();
       setTimeout(() => {
         window.location.href = '/history';
@@ -304,4 +695,19 @@ async function triggerOtpChallenge(txId) {
   }
 }
 
-window.handleBeneficiarySelectChange = handleBeneficiarySelectChange;
+// Global exposes
+window.switchPaymentTab = switchPaymentTab;
+window.handleScanQrSubmit = handleScanQrSubmit;
+window.loadQrPreset = loadQrPreset;
+window.handleResolveUpiSubmit = handleResolveUpiSubmit;
+window.handleResolveMobileSubmit = handleResolveMobileSubmit;
+window.handleSavedBeneficiaryChange = handleSavedBeneficiaryChange;
+window.setAmountChip = setAmountChip;
+window.loadUpiScenario = loadUpiScenario;
+window.openPaymentReviewModal = openPaymentReviewModal;
+window.closePinModal = closePinModal;
+window.executeFinalPayment = executeFinalPayment;
+window.openPinSetupModal = openPinSetupModal;
+window.closePinSetupModal = closePinSetupModal;
+window.handlePinSetupSubmit = handlePinSetupSubmit;
+

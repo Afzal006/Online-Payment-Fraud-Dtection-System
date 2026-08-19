@@ -65,6 +65,38 @@
   </div>
 </div>
 
+<!-- UPI Quick Pay Actions Grid -->
+<div class="glass-card" style="margin-bottom: 2rem; padding: 1.25rem;">
+  <div style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 1rem;">
+    ⚡ Instant UPI Payment Options
+  </div>
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem;">
+    <a href="/payment?mode=qr" class="glass-card" style="padding: 1rem; text-align: center; text-decoration: none; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.2); transition: all 0.2s ease;">
+      <div style="font-size: 2rem; margin-bottom: 0.35rem;">📷</div>
+      <div style="font-weight: 700; color: #fff; font-size: 0.95rem;">Scan QR</div>
+      <div style="font-size: 0.75rem; color: var(--text-muted);">Decode UPI QR Code</div>
+    </a>
+
+    <a href="/payment?mode=upi" class="glass-card" style="padding: 1rem; text-align: center; text-decoration: none; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(52, 211, 153, 0.08); border: 1px solid rgba(52, 211, 153, 0.2); transition: all 0.2s ease;">
+      <div style="font-size: 2rem; margin-bottom: 0.35rem;">@</div>
+      <div style="font-weight: 700; color: #fff; font-size: 0.95rem;">UPI ID / VPA</div>
+      <div style="font-size: 0.75rem; color: var(--text-muted);">Pay by Virtual Handle</div>
+    </a>
+
+    <a href="/payment?mode=mobile" class="glass-card" style="padding: 1rem; text-align: center; text-decoration: none; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(168, 85, 247, 0.08); border: 1px solid rgba(168, 85, 247, 0.2); transition: all 0.2s ease;">
+      <div style="font-size: 2rem; margin-bottom: 0.35rem;">📱</div>
+      <div style="font-weight: 700; color: #fff; font-size: 0.95rem;">Mobile Number</div>
+      <div style="font-size: 0.75rem; color: var(--text-muted);">10-Digit Mobile Pay</div>
+    </a>
+
+    <a href="/beneficiaries" class="glass-card" style="padding: 1rem; text-align: center; text-decoration: none; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(251, 191, 36, 0.08); border: 1px solid rgba(251, 191, 36, 0.2); transition: all 0.2s ease;">
+      <div style="font-size: 2rem; margin-bottom: 0.35rem;">👥</div>
+      <div style="font-weight: 700; color: #fff; font-size: 0.95rem;">Beneficiaries</div>
+      <div style="font-size: 0.75rem; color: var(--text-muted);">Saved Payees & Cooling</div>
+    </a>
+  </div>
+</div>
+
 <!-- KPI Cards -->
 <div class="grid-3" style="margin-bottom: 2rem;">
   <div class="kpi-card">

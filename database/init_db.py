@@ -15,7 +15,19 @@ if str(BASE_DIR) not in sys.path:
 import os
 from app import create_app
 from app.extensions import db
-from app.models import User, Transaction, Alert
+from app.models import (
+    User,
+    Beneficiary,
+    Transaction,
+    Alert,
+    OTPChallenge,
+    PasswordResetToken,
+    AuditLog,
+    DeviceProfile,
+    GeoLocationRecord,
+    SOCCase,
+    CaseNote,
+)
 
 
 def init_database(app=None, config_name: str = "development") -> bool:
@@ -56,6 +68,21 @@ def init_database(app=None, config_name: str = "development") -> bool:
                 if "is_active" not in user_cols:
                     print("[*] Migrating users schema: adding column 'is_active'...")
                     conn.execute(db.text("ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT 1"))
+                if "password_changed_at" not in user_cols:
+                    print("[*] Migrating users schema: adding column 'password_changed_at'...")
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN password_changed_at DATETIME"))
+                if "payment_pin_hash" not in user_cols:
+                    print("[*] Migrating users schema: adding column 'payment_pin_hash'...")
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN payment_pin_hash VARCHAR(255)"))
+                if "pin_failed_attempts" not in user_cols:
+                    print("[*] Migrating users schema: adding column 'pin_failed_attempts'...")
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN pin_failed_attempts INTEGER DEFAULT 0"))
+                if "pin_locked_until" not in user_cols:
+                    print("[*] Migrating users schema: adding column 'pin_locked_until'...")
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN pin_locked_until DATETIME"))
+                if "is_pin_set" not in user_cols:
+                    print("[*] Migrating users schema: adding column 'is_pin_set'...")
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN is_pin_set BOOLEAN DEFAULT 0"))
                 conn.commit()
 
         if "transactions" in table_names:
@@ -79,6 +106,21 @@ def init_database(app=None, config_name: str = "development") -> bool:
                 if "balance_after" not in tx_cols:
                     print("[*] Migrating transactions schema: adding column 'balance_after'...")
                     conn.execute(db.text("ALTER TABLE transactions ADD COLUMN balance_after FLOAT"))
+                if "explanation_json" not in tx_cols:
+                    print("[*] Migrating transactions schema: adding column 'explanation_json'...")
+                    conn.execute(db.text("ALTER TABLE transactions ADD COLUMN explanation_json TEXT"))
+                if "idempotency_key" not in tx_cols:
+                    print("[*] Migrating transactions schema: adding column 'idempotency_key'...")
+                    conn.execute(db.text("ALTER TABLE transactions ADD COLUMN idempotency_key VARCHAR(64)"))
+                if "recipient_user_id" not in tx_cols:
+                    print("[*] Migrating transactions schema: adding column 'recipient_user_id'...")
+                    conn.execute(db.text("ALTER TABLE transactions ADD COLUMN recipient_user_id INTEGER"))
+                if "payment_method" not in tx_cols:
+                    print("[*] Migrating transactions schema: adding column 'payment_method'...")
+                    conn.execute(db.text("ALTER TABLE transactions ADD COLUMN payment_method VARCHAR(20) DEFAULT 'UPI_ID'"))
+                if "reference_id" not in tx_cols:
+                    print("[*] Migrating transactions schema: adding column 'reference_id'...")
+                    conn.execute(db.text("ALTER TABLE transactions ADD COLUMN reference_id VARCHAR(40)"))
                 conn.commit()
 
         if "alerts" in table_names:
@@ -90,6 +132,59 @@ def init_database(app=None, config_name: str = "development") -> bool:
                 if "resolved_by" not in alert_cols:
                     print("[*] Migrating alerts schema: adding column 'resolved_by'...")
                     conn.execute(db.text("ALTER TABLE alerts ADD COLUMN resolved_by VARCHAR(100)"))
+                if "case_id" not in alert_cols:
+                    print("[*] Migrating alerts schema: adding column 'case_id'...")
+                    conn.execute(db.text("ALTER TABLE alerts ADD COLUMN case_id INTEGER"))
+                if "assigned_to_id" not in alert_cols:
+                    print("[*] Migrating alerts schema: adding column 'assigned_to_id'...")
+                    conn.execute(db.text("ALTER TABLE alerts ADD COLUMN assigned_to_id INTEGER"))
+                if "assigned_at" not in alert_cols:
+                    print("[*] Migrating alerts schema: adding column 'assigned_at'...")
+                    conn.execute(db.text("ALTER TABLE alerts ADD COLUMN assigned_at DATETIME"))
+                if "acknowledged_at" not in alert_cols:
+                    print("[*] Migrating alerts schema: adding column 'acknowledged_at'...")
+                    conn.execute(db.text("ALTER TABLE alerts ADD COLUMN acknowledged_at DATETIME"))
+                if "acknowledged_by" not in alert_cols:
+                    print("[*] Migrating alerts schema: adding column 'acknowledged_by'...")
+                    conn.execute(db.text("ALTER TABLE alerts ADD COLUMN acknowledged_by VARCHAR(100)"))
+                if "dedup_signature" not in alert_cols:
+                    print("[*] Migrating alerts schema: adding column 'dedup_signature'...")
+                    conn.execute(db.text("ALTER TABLE alerts ADD COLUMN dedup_signature VARCHAR(64)"))
+                if "correlation_count" not in alert_cols:
+                    print("[*] Migrating alerts schema: adding column 'correlation_count'...")
+                    conn.execute(db.text("ALTER TABLE alerts ADD COLUMN correlation_count INTEGER DEFAULT 1"))
+                conn.commit()
+
+        if "beneficiaries" in table_names:
+            ben_cols = [c["name"] for c in inspector.get_columns("beneficiaries")]
+            with db.engine.connect() as conn:
+                if "cooling_period_hours" not in ben_cols:
+                    print("[*] Migrating beneficiaries schema: adding column 'cooling_period_hours'...")
+                    conn.execute(db.text("ALTER TABLE beneficiaries ADD COLUMN cooling_period_hours INTEGER DEFAULT 24"))
+                if "cooling_expires_at" not in ben_cols:
+                    print("[*] Migrating beneficiaries schema: adding column 'cooling_expires_at'...")
+                    conn.execute(db.text("ALTER TABLE beneficiaries ADD COLUMN cooling_expires_at DATETIME"))
+                if "trust_status" not in ben_cols:
+                    print("[*] Migrating beneficiaries schema: adding column 'trust_status'...")
+                    conn.execute(db.text("ALTER TABLE beneficiaries ADD COLUMN trust_status VARCHAR(32) DEFAULT 'COOLING'"))
+                if "successful_payment_count" not in ben_cols:
+                    print("[*] Migrating beneficiaries schema: adding column 'successful_payment_count'...")
+                    conn.execute(db.text("ALTER TABLE beneficiaries ADD COLUMN successful_payment_count INTEGER DEFAULT 0"))
+                if "failed_payment_count" not in ben_cols:
+                    print("[*] Migrating beneficiaries schema: adding column 'failed_payment_count'...")
+                    conn.execute(db.text("ALTER TABLE beneficiaries ADD COLUMN failed_payment_count INTEGER DEFAULT 0"))
+                if "total_transferred_amount" not in ben_cols:
+                    print("[*] Migrating beneficiaries schema: adding column 'total_transferred_amount'...")
+                    conn.execute(db.text("ALTER TABLE beneficiaries ADD COLUMN total_transferred_amount FLOAT DEFAULT 0.0"))
+                if "first_payment_at" not in ben_cols:
+                    print("[*] Migrating beneficiaries schema: adding column 'first_payment_at'...")
+                    conn.execute(db.text("ALTER TABLE beneficiaries ADD COLUMN first_payment_at DATETIME"))
+                if "revoked_at" not in ben_cols:
+                    print("[*] Migrating beneficiaries schema: adding column 'revoked_at'...")
+                    conn.execute(db.text("ALTER TABLE beneficiaries ADD COLUMN revoked_at DATETIME"))
+                if "revocation_reason" not in ben_cols:
+                    print("[*] Migrating beneficiaries schema: adding column 'revocation_reason'...")
+                    conn.execute(db.text("ALTER TABLE beneficiaries ADD COLUMN revocation_reason VARCHAR(255)"))
                 conn.commit()
 
         required_tables = {"users", "transactions", "alerts", "beneficiaries"}

@@ -48,7 +48,7 @@ class Transaction(db.Model):
     otp_expires_at = db.Column(db.DateTime, nullable=True)
     otp_attempts = db.Column(db.Integer, default=0, nullable=False)
 
-    # Customer Payment Identity & Beneficiary Tracking (Phase 1)
+    # Customer Payment Identity & Beneficiary Tracking (Phase 1 & Phase 3 UPI)
     beneficiary_id = db.Column(db.Integer, db.ForeignKey("beneficiaries.id", ondelete="SET NULL"), nullable=True, index=True)
     destination_upi_id = db.Column(db.String(100), nullable=True)
     destination_name = db.Column(db.String(100), nullable=True)
@@ -56,12 +56,19 @@ class Transaction(db.Model):
     balance_before = db.Column(db.Float, nullable=True)
     balance_after = db.Column(db.Float, nullable=True)
 
+    # UPI Platform & Idempotency Features (Phase 3 Evolution)
+    idempotency_key = db.Column(db.String(64), unique=True, nullable=True, index=True)
+    recipient_user_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    payment_method = db.Column(db.String(20), default="UPI_ID", nullable=False)  # 'QR_CODE', 'UPI_ID', 'MOBILE_NUMBER', 'SAVED_BENEFICIARY'
+    reference_id = db.Column(db.String(40), unique=True, nullable=True, index=True)
+
     # Explanation JSON / audit cache
     explanation_json = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
 
     # Relationships
-    user = db.relationship("User", back_populates="transactions")
+    user = db.relationship("User", foreign_keys=[user_id], back_populates="transactions")
+    recipient_user = db.relationship("User", foreign_keys=[recipient_user_id])
     alert = db.relationship("Alert", back_populates="transaction", uselist=False, cascade="all, delete-orphan")
     beneficiary = db.relationship("Beneficiary", back_populates="transactions")
 
@@ -69,7 +76,11 @@ class Transaction(db.Model):
         """Convert transaction instance to JSON-serializable dictionary."""
         return {
             "id": self.id,
+            "reference_id": self.reference_id,
+            "idempotency_key": self.idempotency_key,
+            "payment_method": self.payment_method,
             "user_id": self.user_id,
+            "recipient_user_id": self.recipient_user_id,
             "step": self.step,
             "type": self.type,
             "amount": self.amount,
@@ -96,4 +107,4 @@ class Transaction(db.Model):
         }
 
     def __repr__(self) -> str:
-        return f"<Transaction {self.id}: {self.type} {self.amount} ({self.risk_level})>"
+        return f"<Transaction {self.id} ({self.reference_id}): {self.type} ₹{self.amount} [{self.status}]>"
