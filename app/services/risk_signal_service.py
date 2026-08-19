@@ -121,8 +121,23 @@ class RiskSignalService:
                     "weight": 15,
                 })
 
-        # 6. NEW_BENEFICIARY_FIRST_TRANSFER (MEDIUM)
-        if is_first_time_ben and tx_type == "TRANSFER" and not is_merchant:
+        # 6. BENEFICIARY RISK INTELLIGENCE & COOLING PERIOD
+        is_ben_cooling = bool(features.get("is_beneficiary_in_cooling", False))
+        if is_ben_cooling and tx_type == "TRANSFER" and not is_merchant:
+            signals.append({
+                "code": "NEW_BENEFICIARY_IN_COOLING",
+                "severity": "HIGH" if amount > cls.AMOUNT_MODERATE_MAX else "MEDIUM",
+                "message": "Payment initiated to a new beneficiary during the mandatory 24-hour security cooling window.",
+                "weight": 25,
+            })
+            if amount > cls.AMOUNT_MODERATE_MAX:
+                signals.append({
+                    "code": "HIGH_BENEFICIARY_TRANSACTION_AMOUNT",
+                    "severity": "HIGH",
+                    "message": f"High-value transfer (₹{amount:,.2f}) initiated to a beneficiary in cooling period.",
+                    "weight": 20,
+                })
+        elif is_first_time_ben and tx_type == "TRANSFER" and not is_merchant:
             signals.append({
                 "code": "NEW_BENEFICIARY_FIRST_TRANSFER",
                 "severity": "MEDIUM",

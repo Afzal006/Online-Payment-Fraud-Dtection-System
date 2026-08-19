@@ -73,10 +73,12 @@ class ShapService:
 
         for s in signals:
             code = s.get("code", "")
-            if code == "NEW_BENEFICIARY_FIRST_TRANSFER":
-                messages.append("This is your first transfer to this recipient.")
-            elif code in ["HIGH_AMOUNT_DEVIATION", "MODERATE_AMOUNT_SPIKE"]:
-                messages.append("This payment amount is higher than your usual transactions.")
+            if code == "NEW_BENEFICIARY_IN_COOLING":
+                messages.append("New beneficiary in security cooling period requires step-up verification.")
+            elif code == "HIGH_BENEFICIARY_TRANSACTION_AMOUNT":
+                messages.append("High-value transfer to a new beneficiary requires additional security authorization.")
+            elif code == "NEW_BENEFICIARY_FIRST_TRANSFER" or code == "FIRST_TIME_BENEFICIARY":
+                messages.append("First transfer to a newly added recipient requires verification.")
             elif code == "RAPID_REPEATED_TRANSACTIONS":
                 messages.append("Multiple transactions were initiated within a short time.")
             elif code == "HIGH_VALUE_TRANSFER":

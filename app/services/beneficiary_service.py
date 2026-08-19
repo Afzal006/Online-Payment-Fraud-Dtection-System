@@ -6,7 +6,7 @@ and audit tracking for customer saved beneficiaries.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Tuple, Optional
 from app.extensions import db
 from app.models.beneficiary import Beneficiary
@@ -86,6 +86,7 @@ class BeneficiaryService:
                 db.session.commit()
                 return existing, None, 200
 
+        now = datetime.now(timezone.utc)
         beneficiary = Beneficiary(
             user_id=user_id,
             beneficiary_name=clean_name,
@@ -95,13 +96,36 @@ class BeneficiaryService:
             nickname=clean_nickname,
             is_verified=True,
             status="ACTIVE",
-            created_at=datetime.now(timezone.utc),
+            trust_status="COOLING",
+            cooling_period_hours=24,
+            cooling_expires_at=now + timedelta(hours=24),
+            created_at=now,
         )
 
         try:
             db.session.add(beneficiary)
             db.session.commit()
-            logger.info("Created beneficiary #%d ('%s') for user #%d", beneficiary.id, clean_upi, user_id)
+            logger.info("Created beneficiary #%d ('%s') for user #%d with 24h cooling", beneficiary.id, clean_upi, user_id)
+
+            from app.services.audit_service import AuditService
+            user = db.session.get(User, user_id)
+            user_email = user.email if user else f"User:{user_id}"
+
+            AuditService.log_event(
+                event_type="BENEFICIARY_ADDED",
+                actor=user_email,
+                action="POST /api/beneficiaries",
+                result="SUCCESS",
+                user_id=user_id,
+                target_resource=f"Beneficiary:{beneficiary.id}",
+                severity="INFO",
+                details={
+                    "beneficiary_id": beneficiary.id,
+                    "beneficiary_upi": clean_upi,
+                    "cooling_expires_at": beneficiary.cooling_expires_at.isoformat(),
+                },
+            )
+
             return beneficiary, None, 201
         except Exception as e:
             db.session.rollback()
@@ -161,17 +185,87 @@ class BeneficiaryService:
             return None, f"Failed to update beneficiary: {str(e)}", 500
 
     @staticmethod
-    def delete_beneficiary(beneficiary_id: int, user_id: int) -> Tuple[bool, Optional[str], int]:
-        """Delete / archive a saved beneficiary with ownership verification."""
+    def revoke_beneficiary(
+        beneficiary_id: int,
+        user_id: int,
+        reason: Optional[str] = None,
+    ) -> Tuple[bool, Optional[str], int]:
+        """Revoke/deactivate a saved beneficiary with tenant boundary enforcement."""
         beneficiary, error_msg, status_code = BeneficiaryService.get_beneficiary_by_id(beneficiary_id, user_id)
         if error_msg:
             return False, error_msg, status_code
 
+        now = datetime.now(timezone.utc)
+        beneficiary.status = "REVOKED"
+        beneficiary.trust_status = "REVOKED"
+        beneficiary.revoked_at = now
+        beneficiary.revocation_reason = reason or "Customer self-service revocation"
+
         try:
-            db.session.delete(beneficiary)
             db.session.commit()
-            logger.info("Deleted beneficiary #%d for user #%d", beneficiary_id, user_id)
+            logger.info("Revoked beneficiary #%d for user #%d", beneficiary_id, user_id)
+
+            from app.services.audit_service import AuditService
+            user = db.session.get(User, user_id)
+            user_email = user.email if user else f"User:{user_id}"
+
+            AuditService.log_event(
+                event_type="BENEFICIARY_REVOKED",
+                actor=user_email,
+                action=f"POST /api/beneficiaries/{beneficiary_id}/revoke",
+                result="SUCCESS",
+                user_id=user_id,
+                target_resource=f"Beneficiary:{beneficiary.id}",
+                severity="WARN",
+                details={
+                    "beneficiary_id": beneficiary.id,
+                    "beneficiary_upi": beneficiary.beneficiary_upi_id,
+                    "reason": beneficiary.revocation_reason,
+                },
+            )
+
             return True, None, 200
         except Exception as e:
             db.session.rollback()
-            return False, f"Failed to delete beneficiary: {str(e)}", 500
+            return False, f"Failed to revoke beneficiary: {str(e)}", 500
+
+    @staticmethod
+    def delete_beneficiary(beneficiary_id: int, user_id: int) -> Tuple[bool, Optional[str], int]:
+        """Delete / revoke a saved beneficiary with ownership verification."""
+        return BeneficiaryService.revoke_beneficiary(beneficiary_id, user_id, reason="Customer deleted beneficiary")
+
+    @staticmethod
+    def record_payment_outcome(beneficiary_id: int, amount: float, success: bool):
+        """Update beneficiary transaction counters and progressive trust state."""
+        beneficiary = db.session.get(Beneficiary, beneficiary_id)
+        if not beneficiary:
+            return
+
+        now = datetime.now(timezone.utc)
+        beneficiary.last_used_at = now
+
+        if success:
+            if beneficiary.first_payment_at is None:
+                beneficiary.first_payment_at = now
+            beneficiary.successful_payment_count += 1
+            beneficiary.total_transferred_amount += float(amount)
+        else:
+            beneficiary.failed_payment_count += 1
+
+        # Update progressive trust status
+        beneficiary.trust_status = beneficiary.get_effective_trust_status(reference_time=now)
+        db.session.commit()
+
+    @staticmethod
+    def get_admin_customer_beneficiaries(customer_id: int) -> Dict[str, Any]:
+        """Retrieve complete beneficiary telemetry for an admin/SOC customer investigation."""
+        beneficiaries = (
+            Beneficiary.query.filter_by(user_id=customer_id)
+            .order_by(Beneficiary.created_at.desc())
+            .all()
+        )
+        return {
+            "customer_id": customer_id,
+            "total": len(beneficiaries),
+            "beneficiaries": [b.to_dict(include_admin=True) for b in beneficiaries],
+        }

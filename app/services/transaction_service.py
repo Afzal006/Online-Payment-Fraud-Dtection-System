@@ -108,6 +108,9 @@ class TransactionService:
                     if not beneficiary or beneficiary.user_id != user_id:
                         return None, "Forbidden: Invalid or unauthorized beneficiary selection", 403
 
+                    if beneficiary.status in ["REVOKED", "INACTIVE"] or beneficiary.trust_status == "REVOKED":
+                        return None, "Transaction rejected: Beneficiary handle has been revoked/deactivated", 403
+
                     dest_upi = beneficiary.beneficiary_upi_id
                     dest_name = beneficiary.beneficiary_name
                     if not dest:
@@ -231,6 +234,19 @@ class TransactionService:
             features["geo_city"] = geo_eval["city"]
             features["geo_country"] = geo_eval["country_code"]
 
+            # 3d. Beneficiary Intelligence & 24h Cooling Period Check
+            if beneficiary:
+                is_cooling = beneficiary.is_cooling_active(reference_time=current_time)
+                features["is_beneficiary_in_cooling"] = 1 if is_cooling else 0
+                features["beneficiary_cooling_remaining_sec"] = beneficiary.get_cooling_remaining_seconds(reference_time=current_time)
+                features["beneficiary_trust_status"] = beneficiary.get_effective_trust_status(reference_time=current_time)
+                features["beneficiary_successful_count"] = beneficiary.successful_payment_count
+                features["is_first_time_beneficiary"] = 1 if beneficiary.successful_payment_count == 0 else 0
+            else:
+                features["is_beneficiary_in_cooling"] = 0
+                features["beneficiary_cooling_remaining_sec"] = 0
+                features["beneficiary_trust_status"] = "NEW"
+
             # 4. ML Inference Payload & SHAP Explainer
             ml_input = {
                 "type": tx_type,
@@ -309,7 +325,8 @@ class TransactionService:
                         balance_after = newbalance_orig
 
                 if beneficiary:
-                    beneficiary.last_used_at = datetime.now(timezone.utc)
+                    from app.services.beneficiary_service import BeneficiaryService
+                    BeneficiaryService.record_payment_outcome(beneficiary.id, amount, success=True)
 
             # 8. Database Persistence with Transaction Safety
             tx_record = Transaction(

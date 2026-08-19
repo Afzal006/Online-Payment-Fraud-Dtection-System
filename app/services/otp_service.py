@@ -206,10 +206,8 @@ class OTPService:
                 tx.balance_after = float(user.account_balance)
 
             if tx.beneficiary_id:
-                from app.models.beneficiary import Beneficiary
-                b = db.session.get(Beneficiary, tx.beneficiary_id)
-                if b:
-                    b.last_used_at = datetime.now(timezone.utc)
+                from app.services.beneficiary_service import BeneficiaryService
+                BeneficiaryService.record_payment_outcome(tx.beneficiary_id, tx.amount, success=True)
 
             tx.status = "APPROVED"
             status_message = "OTP verified successfully. Transaction approved."

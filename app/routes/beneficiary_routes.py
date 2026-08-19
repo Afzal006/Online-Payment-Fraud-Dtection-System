@@ -99,3 +99,25 @@ def delete_beneficiary(beneficiary_id: int):
         "success": True,
         "message": "Beneficiary removed successfully",
     }), 200
+
+
+@beneficiary_bp.route("/<int:beneficiary_id>/revoke", methods=["POST"])
+@jwt_required()
+def revoke_beneficiary(beneficiary_id: int):
+    """Explicitly revoke a saved beneficiary."""
+    user_id = int(get_jwt_identity())
+    data = request.get_json(silent=True) or {}
+    reason = data.get("reason", "Customer self-service revocation")
+
+    success, error_msg, status_code = BeneficiaryService.revoke_beneficiary(
+        beneficiary_id=beneficiary_id,
+        user_id=user_id,
+        reason=reason,
+    )
+    if error_msg:
+        return jsonify({"error": error_msg}), status_code
+
+    return jsonify({
+        "success": True,
+        "message": "Beneficiary revoked successfully",
+    }), 200

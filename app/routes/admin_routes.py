@@ -363,3 +363,20 @@ def get_admin_customer_locations(customer_id: int):
         "success": True,
         **data,
     }), 200
+
+
+@admin_bp.route("/customers/<int:customer_id>/beneficiaries", methods=["GET"])
+@admin_required()
+def get_admin_customer_beneficiaries(customer_id: int):
+    """Retrieve all saved beneficiaries for a customer with cooling and payment telemetry."""
+    from app.services.beneficiary_service import BeneficiaryService
+
+    customer = db.session.get(User, customer_id)
+    if not customer:
+        return jsonify({"error": "Customer not found"}), 404
+
+    data = BeneficiaryService.get_admin_customer_beneficiaries(customer_id)
+    return jsonify({
+        "success": True,
+        **data,
+    }), 200

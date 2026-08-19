@@ -485,3 +485,82 @@ Content-Type: application/json
   ]
 }
 ```
+
+---
+
+## 10. Beneficiary Intelligence & 24-Hour Security Cooling Endpoints
+
+### 10.1 Customer Saved Beneficiaries with Cooling Metadata
+- **Route**: `GET /api/beneficiaries`
+- **Access**: Authenticated Customer (Tenant Isolated)
+- **Response (`200 OK`)**:
+```json
+{
+  "success": true,
+  "total": 1,
+  "beneficiaries": [
+    {
+      "id": 1,
+      "user_id": 1,
+      "beneficiary_name": "Kavita Nair",
+      "beneficiary_upi_id": "kavita@okaxis",
+      "nickname": "Sister",
+      "status": "ACTIVE",
+      "trust_status": "COOLING",
+      "cooling_period_active": true,
+      "cooling_period_remaining_seconds": 84200,
+      "cooling_expires_at": "2026-08-20T14:30:00Z",
+      "created_at": "2026-08-19T14:30:00Z"
+    }
+  ]
+}
+```
+
+### 10.2 Customer Revoke Saved Beneficiary
+- **Route**: `POST /api/beneficiaries/<id>/revoke` or `DELETE /api/beneficiaries/<id>`
+- **Access**: Authenticated Customer (Tenant Isolated)
+- **Request Body**:
+```json
+{
+  "reason": "Customer requested beneficiary revocation"
+}
+```
+- **Response (`200 OK`)**:
+```json
+{
+  "success": true,
+  "message": "Beneficiary revoked successfully"
+}
+```
+
+### 10.3 Admin Customer Beneficiaries Telemetry
+- **Route**: `GET /api/admin/customers/<id>/beneficiaries`
+- **Access**: `ADMIN` Role Required
+- **Response (`200 OK`)**:
+```json
+{
+  "success": true,
+  "customer_id": 1,
+  "total": 1,
+  "beneficiaries": [
+    {
+      "id": 1,
+      "user_id": 1,
+      "beneficiary_name": "Kavita Nair",
+      "beneficiary_upi_id": "kavita@okaxis",
+      "status": "ACTIVE",
+      "trust_status": "COOLING",
+      "cooling_period_active": true,
+      "cooling_period_remaining_seconds": 84200,
+      "cooling_expires_at": "2026-08-20T14:30:00Z",
+      "successful_payment_count": 0,
+      "failed_payment_count": 0,
+      "total_transferred_amount": 0.0,
+      "first_payment_at": null,
+      "revoked_at": null,
+      "revocation_reason": null,
+      "created_at": "2026-08-19T14:30:00Z"
+    }
+  ]
+}
+```
