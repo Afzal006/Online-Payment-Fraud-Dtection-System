@@ -73,18 +73,68 @@ class AuthService:
         return user, None
 
     @staticmethod
-    def authenticate_user(email: str, password: str) -> Tuple[Optional[str], Optional[User], Optional[str]]:
+    def authenticate_user(
+        email: str,
+        password: str,
+        user_agent: Optional[str] = None,
+        client_ip: Optional[str] = None,
+        client_telemetry: Optional[Dict[str, Any]] = None,
+        client_device_id: Optional[str] = None,
+    ) -> Tuple[Optional[str], Optional[User], Optional[str]]:
         """
-        Authenticate user credentials and issue a JWT access token.
+        Authenticate user credentials, evaluate device trust, and issue a JWT access token.
 
         Returns:
             (access_token, user, None) on success
             (None, None, error_message) on failure
         """
+        from flask import has_request_context, request, g
+        from app.services.device_trust_service import DeviceTrustService
+
         clean_email = email.strip().lower()
         user = User.query.filter_by(email=clean_email).first()
 
+        # Resolve device context
+        resolved_ua = user_agent
+        resolved_ip = client_ip
+        resolved_dev_id = client_device_id
+
+        if has_request_context():
+            if not resolved_ua:
+                resolved_ua = request.headers.get("User-Agent", "")
+            if not resolved_ip:
+                resolved_ip = getattr(g, "client_ip", request.remote_addr)
+            if not resolved_dev_id:
+                resolved_dev_id = request.headers.get("X-Device-Fingerprint")
+
+        dev_profile = None
+        if user:
+            dev_profile, dev_trust_status, is_new_dev = DeviceTrustService.evaluate_or_register_device(
+                user_id=user.id,
+                user_agent=resolved_ua,
+                client_ip=resolved_ip,
+                client_telemetry=client_telemetry,
+                client_device_id=resolved_dev_id,
+            )
+
+            # Blocked device enforcement
+            if dev_trust_status == "BLOCKED":
+                AuditService.log_event(
+                    event_type="LOGIN_FAILED",
+                    actor=clean_email,
+                    action="POST /api/auth/login",
+                    result="DENIED",
+                    user_id=user.id,
+                    target_resource=f"DeviceProfile:{dev_profile.id}",
+                    severity="CRITICAL",
+                    details={"reason": "Access denied: Device profile is blocked"},
+                )
+                return None, None, "Access from this device has been blocked for security reasons"
+
         if not user or not user.check_password(password):
+            if dev_profile:
+                DeviceTrustService.record_login_attempt(dev_profile.id, success=False)
+
             AuditService.log_event(
                 event_type="LOGIN_FAILED",
                 actor=clean_email,
@@ -94,6 +144,10 @@ class AuthService:
                 details={"reason": "Invalid email or password"},
             )
             return None, None, "Invalid email or password"
+
+        # Record successful login on device
+        if dev_profile:
+            DeviceTrustService.record_login_attempt(dev_profile.id, success=True)
 
         # Generate JWT with user role in additional claims
         access_token = create_access_token(
@@ -113,7 +167,7 @@ class AuthService:
             user_id=user.id,
             target_resource=f"User:{user.id}",
             severity="INFO",
-            details={"role": user.role},
+            details={"role": user.role, "device_id": dev_profile.id if dev_profile else None},
         )
 
         return access_token, user, None

@@ -170,6 +170,38 @@ class TransactionService:
                 reference_time=current_time,
             )
 
+            # 3b. Device Intelligence & Telemetry Check
+            from flask import has_request_context, request, g
+            from app.services.device_trust_service import DeviceTrustService
+
+            resolved_ua = payload.get("user_agent")
+            resolved_ip = payload.get("client_ip")
+            resolved_dev_id = payload.get("device_fingerprint")
+            client_telemetry = payload.get("client_telemetry")
+
+            if has_request_context():
+                if not resolved_ua:
+                    resolved_ua = request.headers.get("User-Agent", "")
+                if not resolved_ip:
+                    resolved_ip = getattr(g, "client_ip", request.remote_addr)
+                if not resolved_dev_id:
+                    resolved_dev_id = request.headers.get("X-Device-Fingerprint")
+
+            dev_profile, dev_trust_status, is_new_dev = DeviceTrustService.evaluate_or_register_device(
+                user_id=user_id,
+                user_agent=resolved_ua,
+                client_ip=resolved_ip,
+                client_telemetry=client_telemetry,
+                client_device_id=resolved_dev_id,
+            )
+
+            if dev_trust_status == "BLOCKED":
+                return None, "Transaction rejected: Device is blocked due to security violations", 403
+
+            features["is_unknown_device"] = 1 if is_new_dev or dev_trust_status in ["UNKNOWN", "SUSPICIOUS"] else 0
+            features["device_trust_status"] = dev_trust_status
+            features["device_id"] = dev_profile.id if dev_profile else None
+
             # 4. ML Inference Payload & SHAP Explainer
             ml_input = {
                 "type": tx_type,

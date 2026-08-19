@@ -9,6 +9,7 @@ from app.models.alert import Alert
 from app.models.otp_challenge import OTPChallenge
 from app.models.password_reset_token import PasswordResetToken
 from app.models.audit_log import AuditLog
+from app.models.device_profile import DeviceProfile
 
 __all__ = [
     "User",
@@ -18,4 +19,5 @@ __all__ = [
     "OTPChallenge",
     "PasswordResetToken",
     "AuditLog",
+    "DeviceProfile",
 ]

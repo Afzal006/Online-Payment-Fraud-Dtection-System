@@ -148,16 +148,18 @@ class RiskSignalService:
                 "weight": 20,
             })
 
-        # 9. UNVERIFIED_BALANCE_CONTEXT (LOW)
-        if not has_account_simulation and not is_merchant:
+        # 10. UNKNOWN_DEVICE_LOGIN (MEDIUM/HIGH)
+        is_unknown_device = bool(features.get("is_unknown_device", False))
+        device_trust = str(features.get("device_trust_status", "")).upper()
+        if is_unknown_device or device_trust in ["UNKNOWN", "SUSPICIOUS"]:
             signals.append({
-                "code": "UNVERIFIED_BALANCE_CONTEXT",
-                "severity": "LOW",
-                "message": "Account balance simulation context unverified.",
-                "weight": 5,
+                "code": "UNKNOWN_DEVICE_LOGIN",
+                "severity": "HIGH" if device_trust == "SUSPICIOUS" else "MEDIUM",
+                "message": "Payment initiated from an unrecognized or unverified client device profile.",
+                "weight": 25,
             })
 
-        # 10. TRUST DISCOUNTS (Positive signals that reduce false positive friction)
+        # 11. TRUST DISCOUNTS (Positive signals that reduce false positive friction)
         if is_merchant and amount <= cls.AMOUNT_MODERATE_MAX:
             signals.append({
                 "code": "MERCHANT_PAYMENT_TRUST",

@@ -308,3 +308,102 @@ Content-Type: application/json
 - **Route**: `GET /api/admin/customers/<id>`
 - **Access**: `ADMIN` Role Required
 - **Response (`200 OK`)**: Returns customer profile, list of saved beneficiaries, aggregated transaction volume metrics, open alerts count, and complete chronological transaction history.
+
+---
+
+## 7. Device Intelligence & Trust Endpoints
+
+### 7.1 Customer Active Devices
+- **Route**: `GET /api/profile/devices`
+- **Access**: Authenticated Customer
+- **Response (`200 OK`)**:
+```json
+{
+  "success": true,
+  "total": 1,
+  "devices": [
+    {
+      "id": 1,
+      "device_type": "Desktop",
+      "browser": "Chrome",
+      "operating_system": "Windows",
+      "trust_status": "TRUSTED",
+      "first_seen_at": "2026-08-19T10:00:00Z",
+      "last_seen_at": "2026-08-19T14:30:00Z",
+      "is_active": true
+    }
+  ]
+}
+```
+
+### 7.2 Revoke Registered Device
+- **Route**: `POST /api/profile/devices/<id>/revoke` or `DELETE /api/profile/devices/<id>`
+- **Access**: Authenticated Customer (Tenant Isolated)
+- **Response (`200 OK`)**:
+```json
+{
+  "success": true,
+  "message": "Device access revoked successfully"
+}
+```
+
+### 7.3 Admin Customer Device Inspection
+- **Route**: `GET /api/admin/customers/<customer_id>/devices`
+- **Access**: `ADMIN` Role Required
+- **Response (`200 OK`)**: Returns customer devices with SOC telemetry (`failed_login_count`, `successful_login_count`, `last_ip_hash`, `trust_status`).
+
+### 7.4 Admin Update Device Trust Status
+- **Route**: `POST /api/admin/devices/<device_id>/trust`
+- **Access**: `ADMIN` Role Required
+- **Request Body**:
+```json
+{
+  "trust_status": "BLOCKED"
+}
+```
+- **Response (`200 OK`)**:
+```json
+{
+  "success": true,
+  "message": "Device trust status updated to BLOCKED",
+  "device_id": 1,
+  "new_trust_status": "BLOCKED"
+}
+```
+
+---
+
+## 8. Audit Logging & Security Trail Endpoints
+
+### 8.1 Query Structured Audit Logs
+- **Route**: `GET /api/admin/audit-logs?event_type=UNKNOWN_DEVICE_LOGIN&severity=WARN&page=1&per_page=20`
+- **Access**: `ADMIN` Role Required
+- **Response (`200 OK`)**:
+```json
+{
+  "success": true,
+  "total": 12,
+  "page": 1,
+  "per_page": 20,
+  "total_pages": 1,
+  "logs": [
+    {
+      "id": 1,
+      "event_type": "UNKNOWN_DEVICE_LOGIN",
+      "actor": "arjun@example.com",
+      "action": "DEVICE_RISK_EVALUATION",
+      "result": "FLAGGED",
+      "severity": "WARN",
+      "request_id": "8f03c025-a773-455b-9d41-e9bf1f66d482",
+      "user_id": 1,
+      "target_resource": "DeviceProfile:1",
+      "ip_address": "127.0.0.1",
+      "details": {
+        "device_id": 1,
+        "message": "Unrecognized device detected for customer account"
+      },
+      "timestamp": "2026-08-19T14:30:00Z"
+    }
+  ]
+}
+```

@@ -298,3 +298,51 @@ def get_admin_audit_logs():
         "success": True,
         **result,
     }), 200
+
+
+@admin_bp.route("/customers/<int:customer_id>/devices", methods=["GET"])
+@admin_required()
+def get_admin_customer_devices(customer_id: int):
+    """Retrieve all device profiles for a specific customer with admin telemetry."""
+    from app.models.device_profile import DeviceProfile
+
+    devices = DeviceProfile.query.filter_by(user_id=customer_id).order_by(DeviceProfile.last_seen_at.desc()).all()
+    return jsonify({
+        "success": True,
+        "customer_id": customer_id,
+        "total": len(devices),
+        "devices": [d.to_dict(include_admin=True) for d in devices],
+    }), 200
+
+
+@admin_bp.route("/devices/<int:device_id>/trust", methods=["POST"])
+@admin_required()
+def admin_update_device_trust(device_id: int):
+    """Update trust status of a device profile (TRUSTED, SUSPICIOUS, BLOCKED, UNKNOWN)."""
+    from app.services.device_trust_service import DeviceTrustService
+
+    data = request.get_json(silent=True) or {}
+    new_status = data.get("trust_status")
+    if not new_status:
+        return jsonify({"error": "Field 'trust_status' is required"}), 400
+
+    admin_id = int(get_jwt_identity())
+    admin_user = db.session.get(User, admin_id)
+    admin_identifier = admin_user.email if admin_user else f"Admin #{admin_id}"
+
+    success, error = DeviceTrustService.admin_update_trust(
+        device_id=device_id,
+        new_status=new_status,
+        admin_identifier=admin_identifier,
+        admin_id=admin_id,
+    )
+
+    if not success:
+        return jsonify({"error": error}), 400
+
+    return jsonify({
+        "success": True,
+        "message": f"Device trust status updated to {new_status.upper()}",
+        "device_id": device_id,
+        "new_trust_status": new_status.upper(),
+    }), 200
