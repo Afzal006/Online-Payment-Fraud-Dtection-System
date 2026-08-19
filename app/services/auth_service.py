@@ -7,6 +7,7 @@ from flask_jwt_extended import create_access_token
 from app.extensions import db
 from app.models.user import User
 from app.models.password_reset_token import PasswordResetToken
+from app.services.audit_service import AuditService
 
 
 class AuthService:
@@ -56,6 +57,19 @@ class AuthService:
         user.primary_upi_id = f"{email_prefix}@fraudshield"
 
         db.session.commit()
+
+        # Audit Log Event
+        AuditService.log_event(
+            event_type="USER_REGISTERED",
+            actor=user.email,
+            action="POST /api/auth/register",
+            result="SUCCESS",
+            user_id=user.id,
+            target_resource=f"User:{user.id}",
+            severity="INFO",
+            details={"role": user.role, "customer_account_id": user.customer_account_id},
+        )
+
         return user, None
 
     @staticmethod
@@ -71,6 +85,14 @@ class AuthService:
         user = User.query.filter_by(email=clean_email).first()
 
         if not user or not user.check_password(password):
+            AuditService.log_event(
+                event_type="LOGIN_FAILED",
+                actor=clean_email,
+                action="POST /api/auth/login",
+                result="FAILURE",
+                severity="WARN",
+                details={"reason": "Invalid email or password"},
+            )
             return None, None, "Invalid email or password"
 
         # Generate JWT with user role in additional claims
@@ -82,6 +104,18 @@ class AuthService:
                 "name": user.name,
             },
         )
+
+        AuditService.log_event(
+            event_type="LOGIN_SUCCESS",
+            actor=user.email,
+            action="POST /api/auth/login",
+            result="SUCCESS",
+            user_id=user.id,
+            target_resource=f"User:{user.id}",
+            severity="INFO",
+            details={"role": user.role},
+        )
+
         return access_token, user, None
 
     @staticmethod
@@ -158,6 +192,17 @@ class AuthService:
         db.session.add(reset_record)
         db.session.commit()
 
+        AuditService.log_event(
+            event_type="PASSWORD_RESET_REQUESTED",
+            actor=user.email,
+            action="POST /api/auth/forgot-password",
+            result="SUCCESS",
+            user_id=user.id,
+            target_resource=f"User:{user.id}",
+            severity="INFO",
+            ip_address=remote_ip,
+        )
+
         dev_token_out = raw_token if dev_mode else None
         return True, dev_token_out, None
 
@@ -180,6 +225,14 @@ class AuthService:
             (success, error_message_or_none)
         """
         if not token or not isinstance(token, str) or not token.strip():
+            AuditService.log_event(
+                event_type="PASSWORD_RESET_FAILED",
+                actor="ANONYMOUS",
+                action="POST /api/auth/reset-password",
+                result="FAILURE",
+                severity="WARN",
+                details={"reason": "Missing token"},
+            )
             return False, "Reset token is required"
 
         clean_token = token.strip()
@@ -188,18 +241,44 @@ class AuthService:
         # Look up token record
         reset_record = PasswordResetToken.query.filter_by(token_hash=computed_hash).first()
         if not reset_record:
+            AuditService.log_event(
+                event_type="PASSWORD_RESET_FAILED",
+                actor="ANONYMOUS",
+                action="POST /api/auth/reset-password",
+                result="FAILURE",
+                severity="WARN",
+                details={"reason": "Invalid or unknown token hash"},
+            )
             return False, "Invalid or expired reset token"
 
         max_attempts = current_app.config.get("PASSWORD_RESET_MAX_ATTEMPTS", 5)
 
         # Check attempt limits
         if reset_record.attempt_count >= max_attempts:
+            AuditService.log_event(
+                event_type="PASSWORD_RESET_FAILED",
+                actor=f"User:{reset_record.user_id}",
+                action="POST /api/auth/reset-password",
+                result="DENIED",
+                user_id=reset_record.user_id,
+                severity="CRITICAL",
+                details={"reason": "Maximum token attempts exceeded - locked"},
+            )
             return False, "Too many failed attempts. This reset token has been locked."
 
         # Check if already used
         if reset_record.used_at is not None:
             reset_record.record_failed_attempt()
             db.session.commit()
+            AuditService.log_event(
+                event_type="PASSWORD_RESET_FAILED",
+                actor=f"User:{reset_record.user_id}",
+                action="POST /api/auth/reset-password",
+                result="DENIED",
+                user_id=reset_record.user_id,
+                severity="WARN",
+                details={"reason": "Token already consumed"},
+            )
             return False, "This reset token has already been used"
 
         # Check expiration
@@ -211,6 +290,15 @@ class AuthService:
         if now >= expires:
             reset_record.record_failed_attempt()
             db.session.commit()
+            AuditService.log_event(
+                event_type="PASSWORD_RESET_FAILED",
+                actor=f"User:{reset_record.user_id}",
+                action="POST /api/auth/reset-password",
+                result="FAILURE",
+                user_id=reset_record.user_id,
+                severity="WARN",
+                details={"reason": "Token expired"},
+            )
             return False, "This reset token has expired"
 
         # Fetch user
@@ -222,6 +310,15 @@ class AuthService:
         if not new_password or len(new_password) < 8:
             reset_record.record_failed_attempt()
             db.session.commit()
+            AuditService.log_event(
+                event_type="PASSWORD_RESET_FAILED",
+                actor=user.email,
+                action="POST /api/auth/reset-password",
+                result="FAILURE",
+                user_id=user.id,
+                severity="WARN",
+                details={"reason": "Password policy violated (length < 8)"},
+            )
             return False, "Password must be at least 8 characters long"
 
         # Update password and timestamps
@@ -241,5 +338,16 @@ class AuthService:
             tok.used_at = now
 
         db.session.commit()
+
+        AuditService.log_event(
+            event_type="PASSWORD_RESET_COMPLETED",
+            actor=user.email,
+            action="POST /api/auth/reset-password",
+            result="SUCCESS",
+            user_id=user.id,
+            target_resource=f"User:{user.id}",
+            severity="INFO",
+        )
+
         return True, None
 

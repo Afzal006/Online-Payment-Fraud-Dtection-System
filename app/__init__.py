@@ -5,6 +5,8 @@ Flask Application Factory for Online Payment Fraud Detection System.
 from flask import Flask, jsonify
 from app.config import config_by_name
 from app.extensions import db, migrate, jwt, cors
+from app.utils.security_middleware import setup_security_middleware
+from app.utils.logging_config import configure_structured_logging
 
 
 def create_app(config_name="development"):
@@ -18,6 +20,10 @@ def create_app(config_name="development"):
     # Load configuration
     config_class = config_by_name.get(config_name, config_by_name["development"])
     app.config.from_object(config_class)
+
+    # Initialize structured logging and security middleware
+    configure_structured_logging(app)
+    setup_security_middleware(app)
 
     # Initialize extensions
     cors.init_app(app, resources={r"/api/*": {"origins": "*"}})

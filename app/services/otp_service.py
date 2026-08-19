@@ -93,6 +93,18 @@ class OTPService:
             plaintext_otp, transaction_id, user_email, expiry_duration
         )
 
+        from app.services.audit_service import AuditService
+        AuditService.log_event(
+            event_type="OTP_REQUESTED",
+            actor=user_email,
+            action="POST /api/otp/request",
+            result="SUCCESS",
+            user_id=user_id,
+            target_resource=f"Transaction:{transaction_id}",
+            severity="INFO",
+            details={"transaction_id": transaction_id, "expiry_seconds": expiry_duration},
+        )
+
         return challenge, plaintext_otp, None
 
     @classmethod
@@ -145,6 +157,21 @@ class OTPService:
         # Check hash match
         if not challenge.check_otp(str(candidate_otp).strip()):
             remaining = challenge.max_attempts - challenge.attempt_count
+            user = db.session.get(User, user_id)
+            user_email = user.email if user else f"User:{user_id}"
+
+            from app.services.audit_service import AuditService
+            AuditService.log_event(
+                event_type="OTP_FAILED",
+                actor=user_email,
+                action="POST /api/otp/verify",
+                result="FAILURE",
+                user_id=user_id,
+                target_resource=f"Transaction:{transaction_id}",
+                severity="WARN",
+                details={"transaction_id": transaction_id, "attempt_count": challenge.attempt_count},
+            )
+
             if remaining <= 0:
                 challenge.status = "EXHAUSTED"
                 tx.status = "REJECTED"
@@ -158,13 +185,15 @@ class OTPService:
         challenge.status = "VERIFIED"
         challenge.verified_at = datetime.now(timezone.utc)
 
+        user = db.session.get(User, tx.user_id)
+        user_email = user.email if user else f"User:{user_id}"
+
         # Transition transaction state based on original risk tier
         if tx.risk_level == "CRITICAL":
             tx.status = "VERIFIED_PENDING_REVIEW"
             status_message = "OTP verified successfully. Transaction queued for administrative security review."
         else:
             # Re-verify and atomically deduct available balance
-            user = db.session.get(User, tx.user_id)
             if user and user.role == "USER" and tx.type in ["TRANSFER", "PAYMENT", "CASH_OUT", "DEBIT"]:
                 current_bal = float(user.account_balance) if user.account_balance is not None else 0.0
                 if current_bal < tx.amount:
@@ -186,5 +215,17 @@ class OTPService:
             status_message = "OTP verified successfully. Transaction approved."
 
         db.session.commit()
+
+        from app.services.audit_service import AuditService
+        AuditService.log_event(
+            event_type="OTP_VERIFIED",
+            actor=user_email,
+            action="POST /api/otp/verify",
+            result="SUCCESS",
+            user_id=user_id,
+            target_resource=f"Transaction:{transaction_id}",
+            severity="INFO",
+            details={"transaction_id": transaction_id, "status": tx.status},
+        )
 
         return True, status_message, 200, tx.to_dict()

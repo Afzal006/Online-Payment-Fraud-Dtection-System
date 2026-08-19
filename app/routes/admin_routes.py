@@ -268,3 +268,33 @@ def get_admin_model_info():
         "model_metadata": metadata,
         "data_drift": drift,
     }), 200
+
+
+@admin_bp.route("/audit-logs", methods=["GET"])
+@admin_required()
+def get_admin_audit_logs():
+    """Retrieve filtered, paginated structured audit log records."""
+    from app.services.audit_service import AuditService
+
+    event_type = request.args.get("event_type")
+    severity = request.args.get("severity")
+    user_id = request.args.get("user_id", type=int)
+    request_id = request.args.get("request_id")
+    search = request.args.get("search")
+    page = request.args.get("page", 1, type=int)
+    per_page = request.args.get("per_page", 20, type=int)
+
+    result = AuditService.query_logs(
+        event_type=event_type,
+        severity=severity,
+        user_id=user_id,
+        request_id=request_id,
+        search=search,
+        page=page,
+        per_page=per_page,
+    )
+
+    return jsonify({
+        "success": True,
+        **result,
+    }), 200

@@ -318,6 +318,27 @@ class TransactionService:
                 tx_record.id, user_id, tx_type, amount, balance_after, final_risk_score, risk_level, decision
             )
 
+            # Audit Trail Recording
+            from app.services.audit_service import AuditService
+            AuditService.log_event(
+                event_type="TRANSACTION_EVALUATED",
+                actor=user.email if user else f"User:{user_id}",
+                action="POST /api/transactions/predict",
+                result="FLAGGED" if decision in ["TRIGGER_SECURITY_REVIEW", "DECLINE_TRANSACTION"] else "SUCCESS",
+                user_id=user_id,
+                target_resource=f"Transaction:{tx_record.id}",
+                severity="CRITICAL" if risk_level == "CRITICAL" else ("WARN" if risk_level in ["HIGH", "MEDIUM"] else "INFO"),
+                details={
+                    "transaction_id": tx_record.id,
+                    "type": tx_type,
+                    "amount": amount,
+                    "risk_score": final_risk_score,
+                    "risk_level": risk_level,
+                    "decision": decision,
+                    "status": status,
+                },
+            )
+
             # 9. Build Standardized API Response
             response_payload = {
                 "success": True,

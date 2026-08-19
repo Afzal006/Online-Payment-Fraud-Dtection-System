@@ -97,6 +97,19 @@ class AlertService:
         if note:
             alert.notes = note
         db.session.commit()
+
+        from app.services.audit_service import AuditService
+        AuditService.log_event(
+            event_type="ALERT_RESOLVED",
+            actor=admin_identifier,
+            action=f"POST /api/admin/alerts/{alert_id}/resolve",
+            result="SUCCESS",
+            user_id=admin_id,
+            target_resource=f"Alert:{alert_id}",
+            severity="INFO",
+            details={"alert_id": alert_id, "transaction_id": alert.transaction_id, "note": note},
+        )
+
         return alert
 
     @staticmethod
@@ -115,4 +128,17 @@ class AlertService:
         if note:
             alert.notes = note
         db.session.commit()
+
+        from app.services.audit_service import AuditService
+        AuditService.log_event(
+            event_type="ALERT_DISMISSED",
+            actor=admin_identifier,
+            action=f"POST /api/admin/alerts/{alert_id}/dismiss",
+            result="SUCCESS",
+            user_id=admin_id,
+            target_resource=f"Alert:{alert_id}",
+            severity="INFO",
+            details={"alert_id": alert_id, "transaction_id": alert.transaction_id, "note": note},
+        )
+
         return alert
