@@ -10,6 +10,7 @@ from app.models.otp_challenge import OTPChallenge
 from app.models.password_reset_token import PasswordResetToken
 from app.models.audit_log import AuditLog
 from app.models.device_profile import DeviceProfile
+from app.models.geo_location_record import GeoLocationRecord
 
 __all__ = [
     "User",
@@ -20,4 +21,5 @@ __all__ = [
     "PasswordResetToken",
     "AuditLog",
     "DeviceProfile",
+    "GeoLocationRecord",
 ]

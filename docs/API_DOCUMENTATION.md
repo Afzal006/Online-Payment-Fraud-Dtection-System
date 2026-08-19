@@ -407,3 +407,81 @@ Content-Type: application/json
   ]
 }
 ```
+
+---
+
+## 9. Geo Intelligence & Impossible Travel Endpoints
+
+### 9.1 Customer Geographic Location History
+- **Route**: `GET /api/profile/locations`
+- **Access**: Authenticated Customer (Tenant Isolated)
+- **Response (`200 OK`)**:
+```json
+{
+  "success": true,
+  "total": 2,
+  "locations": [
+    {
+      "id": 10,
+      "city": "Bengaluru",
+      "region": "Karnataka",
+      "country": "IN",
+      "timezone": "Asia/Kolkata",
+      "event_type": "TRANSACTION",
+      "created_at": "2026-08-19T14:30:00Z"
+    }
+  ]
+}
+```
+
+### 9.2 Customer Location Baseline Summary
+- **Route**: `GET /api/profile/locations/summary`
+- **Access**: Authenticated Customer
+- **Response (`200 OK`)**:
+```json
+{
+  "success": true,
+  "summary": {
+    "distinct_cities_count": 2,
+    "last_active_at": "2026-08-19T14:30:00Z",
+    "last_active_city": "Bengaluru",
+    "last_active_country": "IN",
+    "primary_home_city": "Bengaluru",
+    "recognized_cities": ["Bengaluru", "Chennai"],
+    "total_location_events": 5
+  }
+}
+```
+
+### 9.3 Admin Customer Geographic Telemetry & Travel Physics
+- **Route**: `GET /api/admin/customers/<id>/locations`
+- **Access**: `ADMIN` Role Required
+- **Response (`200 OK`)**:
+```json
+{
+  "success": true,
+  "customer_id": 1,
+  "total_events": 5,
+  "impossible_travel_events": 1,
+  "unusual_location_events": 1,
+  "locations": [
+    {
+      "id": 12,
+      "user_id": 1,
+      "event_type": "TRANSACTION",
+      "city": "London",
+      "region": "England",
+      "country": "GB",
+      "timezone": "Europe/London",
+      "latitude": 51.51,
+      "longitude": -0.13,
+      "ip_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "distance_km": 7500.0,
+      "speed_kmh": 22500.0,
+      "is_impossible_travel": true,
+      "is_unusual_location": true,
+      "created_at": "2026-08-19T14:35:00Z"
+    }
+  ]
+}
+```

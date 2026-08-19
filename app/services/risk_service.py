@@ -143,6 +143,10 @@ class RiskDecisionService:
             elif amount > cls.AMOUNT_NORMAL_MAX and clean_type in ["TRANSFER", "CASH_OUT"]:
                 final_score = max(35, final_score)
 
+        # Enforce minimum floor of 60 for physical IMPOSSIBLE_TRAVEL
+        if any(s.get("code") == "IMPOSSIBLE_TRAVEL" for s in structured_signals):
+            final_score = max(60, final_score)
+
         # Ensure high ML certainty is never masked by negative signal discounts
         final_score = max(final_score, ml_score)
         final_score = max(0, min(100, final_score))

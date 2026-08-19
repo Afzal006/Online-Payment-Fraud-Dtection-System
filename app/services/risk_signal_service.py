@@ -159,7 +159,40 @@ class RiskSignalService:
                 "weight": 25,
             })
 
-        # 11. TRUST DISCOUNTS (Positive signals that reduce false positive friction)
+        # 11. IMPOSSIBLE_TRAVEL (CRITICAL)
+        if features.get("is_impossible_travel", False):
+            dist_km = float(features.get("geo_distance_km", 0.0))
+            elapsed_sec = float(features.get("geo_elapsed_seconds", 0.0))
+            speed_kmh = float(features.get("geo_speed_kmh", 0.0))
+            elapsed_min = round(elapsed_sec / 60.0, 1)
+            signals.append({
+                "code": "IMPOSSIBLE_TRAVEL",
+                "severity": "CRITICAL",
+                "message": f"Physical impossible travel detected ({dist_km:.0f} km in {elapsed_min:.1f} mins at {speed_kmh:.0f} km/h).",
+                "weight": 35,
+            })
+
+        # 12. RAPID_GEO_CHANGE (HIGH)
+        if features.get("is_rapid_geo_change", False) and not features.get("is_impossible_travel", False):
+            signals.append({
+                "code": "RAPID_GEO_CHANGE",
+                "severity": "HIGH",
+                "message": "Rapid cross-region relocation detected across distant geographic hubs.",
+                "weight": 25,
+            })
+
+        # 13. UNUSUAL_LOCATION (MEDIUM)
+        if features.get("is_unusual_location", False) and not features.get("is_impossible_travel", False):
+            city_name = features.get("geo_city", "Unknown")
+            country_name = features.get("geo_country", "IN")
+            signals.append({
+                "code": "UNUSUAL_LOCATION",
+                "severity": "MEDIUM",
+                "message": f"Payment initiated from an unfamiliar geographic location ({city_name}, {country_name}).",
+                "weight": 20,
+            })
+
+        # 14. TRUST DISCOUNTS (Positive signals that reduce false positive friction)
         if is_merchant and amount <= cls.AMOUNT_MODERATE_MAX:
             signals.append({
                 "code": "MERCHANT_PAYMENT_TRUST",

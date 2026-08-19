@@ -80,6 +80,7 @@ class AuthService:
         client_ip: Optional[str] = None,
         client_telemetry: Optional[Dict[str, Any]] = None,
         client_device_id: Optional[str] = None,
+        location_payload: Optional[Dict[str, Any]] = None,
     ) -> Tuple[Optional[str], Optional[User], Optional[str]]:
         """
         Authenticate user credentials, evaluate device trust, and issue a JWT access token.
@@ -148,6 +149,23 @@ class AuthService:
         # Record successful login on device
         if dev_profile:
             DeviceTrustService.record_login_attempt(dev_profile.id, success=True)
+
+        # Record login geographic location
+        from app.services.geo_intelligence_service import GeoIntelligenceService
+        resolved_loc = location_payload
+        if not resolved_loc and has_request_context():
+            resolved_loc = {
+                "city": request.headers.get("X-Client-City"),
+                "country": request.headers.get("X-Client-Country"),
+            }
+
+        geo_eval = GeoIntelligenceService.evaluate_event_location(
+            user_id=user.id,
+            client_ip=resolved_ip,
+            location_payload=resolved_loc,
+            event_type="LOGIN",
+            persist=True,
+        )
 
         # Generate JWT with user role in additional claims
         access_token = create_access_token(

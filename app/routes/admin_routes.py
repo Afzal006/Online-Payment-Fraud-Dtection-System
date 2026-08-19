@@ -346,3 +346,20 @@ def admin_update_device_trust(device_id: int):
         "device_id": device_id,
         "new_trust_status": new_status.upper(),
     }), 200
+
+
+@admin_bp.route("/customers/<int:customer_id>/locations", methods=["GET"])
+@admin_required()
+def get_admin_customer_locations(customer_id: int):
+    """Retrieve all geographic location events for a customer with admin-level physics telemetry."""
+    from app.services.geo_intelligence_service import GeoIntelligenceService
+
+    customer = db.session.get(User, customer_id)
+    if not customer:
+        return jsonify({"error": "Customer not found"}), 404
+
+    data = GeoIntelligenceService.get_admin_customer_locations(customer_id)
+    return jsonify({
+        "success": True,
+        **data,
+    }), 200

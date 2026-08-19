@@ -100,3 +100,34 @@ def revoke_user_device(device_id: int):
         "success": True,
         "message": "Device access revoked successfully",
     }), 200
+
+
+@profile_bp.route("/locations", methods=["GET"])
+@jwt_required()
+def get_user_locations():
+    """Retrieve chronological geographic location events for the authenticated customer."""
+    from app.services.geo_intelligence_service import GeoIntelligenceService
+
+    user_id = int(get_jwt_identity())
+    locations = GeoIntelligenceService.get_user_locations(user_id)
+
+    return jsonify({
+        "success": True,
+        "total": len(locations),
+        "locations": locations,
+    }), 200
+
+
+@profile_bp.route("/locations/summary", methods=["GET"])
+@jwt_required()
+def get_user_location_summary():
+    """Retrieve recognized geographic locations and primary home region for customer."""
+    from app.services.geo_intelligence_service import GeoIntelligenceService
+
+    user_id = int(get_jwt_identity())
+    summary = GeoIntelligenceService.get_user_location_summary(user_id)
+
+    return jsonify({
+        "success": True,
+        "summary": summary,
+    }), 200

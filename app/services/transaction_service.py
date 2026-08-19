@@ -202,6 +202,35 @@ class TransactionService:
             features["device_trust_status"] = dev_trust_status
             features["device_id"] = dev_profile.id if dev_profile else None
 
+            # 3c. Geo Intelligence & Impossible Travel Check
+            from app.services.geo_intelligence_service import GeoIntelligenceService
+
+            loc_payload = payload.get("location") or {
+                "city": payload.get("city") or (request.headers.get("X-Client-City") if has_request_context() else None),
+                "state": payload.get("state") or payload.get("region"),
+                "country": payload.get("country") or (request.headers.get("X-Client-Country") if has_request_context() else None),
+                "lat": payload.get("latitude") or payload.get("lat"),
+                "lon": payload.get("longitude") or payload.get("lon"),
+            }
+
+            geo_eval = GeoIntelligenceService.evaluate_event_location(
+                user_id=user_id,
+                client_ip=resolved_ip,
+                location_payload=loc_payload,
+                event_type="TRANSACTION",
+                reference_time=current_time,
+                persist=True,
+            )
+
+            features["is_impossible_travel"] = 1 if geo_eval["is_impossible_travel"] else 0
+            features["is_unusual_location"] = 1 if geo_eval["is_unusual_location"] else 0
+            features["is_rapid_geo_change"] = 1 if geo_eval["is_rapid_geo_change"] else 0
+            features["geo_distance_km"] = geo_eval["distance_km"]
+            features["geo_elapsed_seconds"] = geo_eval["elapsed_seconds"]
+            features["geo_speed_kmh"] = geo_eval["speed_kmh"]
+            features["geo_city"] = geo_eval["city"]
+            features["geo_country"] = geo_eval["country_code"]
+
             # 4. ML Inference Payload & SHAP Explainer
             ml_input = {
                 "type": tx_type,

@@ -83,6 +83,14 @@ class ShapService:
                 messages.append("High-value payment requires additional security authorization.")
             elif code == "CRITICAL_BALANCE_DRAIN":
                 messages.append("Transfer requires verification to protect full account balance.")
+            elif code == "IMPOSSIBLE_TRAVEL":
+                messages.append("Anomalous location jump detected requiring step-up verification.")
+            elif code == "UNUSUAL_LOCATION":
+                messages.append("Payment initiated from a new or unfamiliar location.")
+            elif code == "RAPID_GEO_CHANGE":
+                messages.append("Rapid location change detected across distant geographic regions.")
+            elif code == "UNKNOWN_DEVICE_LOGIN":
+                messages.append("Transaction initiated from an unverified or new device.")
 
         if not messages:
             if risk_level in ["HIGH", "CRITICAL"]:
