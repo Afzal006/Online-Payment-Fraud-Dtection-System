@@ -38,7 +38,7 @@ class User(db.Model):
 
     # Relationships
     transactions = db.relationship("Transaction", back_populates="user", lazy="dynamic", cascade="all, delete-orphan")
-    alerts = db.relationship("Alert", back_populates="user", lazy="dynamic", cascade="all, delete-orphan")
+    alerts = db.relationship("Alert", foreign_keys="Alert.user_id", back_populates="user", lazy="dynamic", cascade="all, delete-orphan")
     beneficiaries = db.relationship("Beneficiary", back_populates="user", lazy="dynamic", cascade="all, delete-orphan")
     password_reset_tokens = db.relationship("PasswordResetToken", back_populates="user", lazy="dynamic", cascade="all, delete-orphan")
 

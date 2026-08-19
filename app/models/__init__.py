@@ -11,6 +11,8 @@ from app.models.password_reset_token import PasswordResetToken
 from app.models.audit_log import AuditLog
 from app.models.device_profile import DeviceProfile
 from app.models.geo_location_record import GeoLocationRecord
+from app.models.soc_case import SOCCase
+from app.models.case_note import CaseNote
 
 __all__ = [
     "User",
@@ -22,4 +24,6 @@ __all__ = [
     "AuditLog",
     "DeviceProfile",
     "GeoLocationRecord",
+    "SOCCase",
+    "CaseNote",
 ]

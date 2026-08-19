@@ -564,3 +564,93 @@ Content-Type: application/json
   ]
 }
 ```
+
+---
+
+## 11. SOC Case Management & Alert Lifecycle (Phase 3 Milestone 5)
+
+### `GET /api/admin/alerts`
+- **Auth**: Bearer Token (`ADMIN` role)
+- **Query Params**: `status`, `severity`, `assigned_to_id`, `case_id`, `customer_id`, `limit`
+- **Response**: List of security alerts with deduplication counters, assignee telemetry, and transaction risk scores.
+
+### `POST /api/admin/alerts/<id>/acknowledge`
+- **Auth**: Bearer Token (`ADMIN` role)
+- **Description**: Analyst acknowledges open alert for triage. Status transitions to `ACKNOWLEDGED`.
+
+### `POST /api/admin/alerts/<id>/assign`
+- **Auth**: Bearer Token (`ADMIN` role)
+- **Body**: `{"assignee_id": 2}`
+- **Description**: Assigns alert to an admin analyst and records triage timestamp.
+
+### `POST /api/admin/alerts/<id>/investigate`
+- **Auth**: Bearer Token (`ADMIN` role)
+- **Body**: `{"note": "Investigating rapid travel jump"}`
+- **Description**: Moves alert to `INVESTIGATING` with investigator note.
+
+### `POST /api/admin/alerts/<id>/escalate`
+- **Auth**: Bearer Token (`ADMIN` role)
+- **Body**: `{"case_id": 1, "note": "Escalated to syndicate case"}`
+- **Description**: Escalates alert and links to parent SOC Case.
+
+### `POST /api/admin/alerts/<id>/resolve`
+- **Auth**: Bearer Token (`ADMIN` role)
+- **Body**: `{"resolution_type": "RESOLVED" | "FALSE_POSITIVE", "note": "Resolution summary"}`
+
+### `POST /api/admin/alerts/<id>/dismiss`
+- **Auth**: Bearer Token (`ADMIN` role)
+- **Body**: `{"note": "Dismissal rationale"}`
+
+### `GET /api/admin/cases`
+- **Auth**: Bearer Token (`ADMIN` role)
+- **Query Params**: `status`, `priority`, `analyst_id`, `customer_id`, `page`, `per_page`
+- **Response**: Filtered, priority-sorted list of SOC investigation cases.
+
+### `POST /api/admin/cases`
+- **Auth**: Bearer Token (`ADMIN` role)
+- **Body**:
+```json
+{
+  "customer_id": 1,
+  "title": "Suspected Account Takeover",
+  "priority": "CRITICAL",
+  "lead_analyst_id": 2,
+  "description": "Impossible travel jump with sudden balance drain",
+  "alert_ids": [10, 11]
+}
+```
+- **Response** (201 Created): Case dossier with immutable evidence graph snapshot.
+
+### `GET /api/admin/cases/<id>`
+- **Auth**: Bearer Token (`ADMIN` role)
+- **Response**: Full case details including attached alerts, timeline notes, and forensic evidence snapshot.
+
+### `POST /api/admin/cases/<id>/status`
+- **Auth**: Bearer Token (`ADMIN` role)
+- **Body**:
+```json
+{
+  "status": "RESOLVED_CONFIRMED_FRAUD",
+  "resolution_summary": "Confirmed unauthorized syndicate compromise",
+  "block_devices": true,
+  "revoke_beneficiaries": true
+}
+```
+- **Description**: Advances lifecycle and automatically applies security remediations.
+
+### `POST /api/admin/cases/<id>/assign`
+- **Auth**: Bearer Token (`ADMIN` role)
+- **Body**: `{"analyst_id": 2}`
+
+### `POST /api/admin/cases/<id>/notes`
+- **Auth**: Bearer Token (`ADMIN` role)
+- **Body**: `{"note_type": "ANALYST_NOTE" | "INVESTIGATION_STEP" | "EVIDENCE_ATTACHED", "content": "Analyst note text"}`
+
+### `POST /api/admin/cases/<id>/alerts/attach`
+- **Auth**: Bearer Token (`ADMIN` role)
+- **Body**: `{"alert_id": 12}`
+
+### `GET /api/admin/cases/summary`
+- **Auth**: Bearer Token (`ADMIN` role)
+- **Response**: Operational metrics for the SOC dashboard (active cases by priority, status distribution, alert load).
+
