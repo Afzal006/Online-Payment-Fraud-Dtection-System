@@ -1,0 +1,128 @@
+{
+  "dataset_name": "PaySim Online Payments Fraud Detection Dataset",
+  "total_records": 6362620,
+  "imbalance_ratio": 773.7,
+  "target_column": "isFraud",
+  "raw_columns": [
+    "step",
+    "type",
+    "amount",
+    "nameOrig",
+    "oldbalanceOrg",
+    "newbalanceOrig",
+    "nameDest",
+    "oldbalanceDest",
+    "newbalanceDest",
+    "isFraud",
+    "isFlaggedFraud"
+  ],
+  "excluded_columns": [
+    {
+      "column": "isFraud",
+      "reason": "Target variable"
+    },
+    {
+      "column": "isFlaggedFraud",
+      "reason": "Rule-based heuristic; excluded from primary ML model to prevent target leakage, retained for baseline comparison"
+    },
+    {
+      "column": "nameOrig",
+      "reason": "High-cardinality identifier; excluded to prevent overfitting"
+    },
+    {
+      "column": "nameDest",
+      "reason": "High-cardinality identifier; distilled into isMerchantDest"
+    }
+  ],
+  "temporal_evaluation_options": {
+    "option_a": "hourOfDay (step % 24)",
+    "option_b": "raw step",
+    "option_c": "raw step + hourOfDay",
+    "selection_policy": "Empirically evaluated during Phase 2 baseline & validation"
+  },
+  "logical_features": [
+    {
+      "name": "type",
+      "type": "categorical",
+      "categories": ["CASH_OUT", "TRANSFER", "PAYMENT", "CASH_IN", "DEBIT"],
+      "encoding": "OneHotEncoder",
+      "transformed_columns_count": 5,
+      "available_before_authorization": true
+    },
+    {
+      "name": "amount",
+      "type": "numerical",
+      "scaling": "optional_trees_passthrough",
+      "available_before_authorization": true
+    },
+    {
+      "name": "oldbalanceOrg",
+      "type": "numerical",
+      "scaling": "optional_trees_passthrough",
+      "available_before_authorization": true
+    },
+    {
+      "name": "newbalanceOrig",
+      "type": "numerical",
+      "scaling": "optional_trees_passthrough",
+      "available_before_authorization": false,
+      "note": "Post-tx ledger state in PaySim; estimated at pre-authorization"
+    },
+    {
+      "name": "oldbalanceDest",
+      "type": "numerical",
+      "scaling": "optional_trees_passthrough",
+      "available_before_authorization": false,
+      "note": "External recipient balance typically unavailable in real-world cross-bank contexts"
+    },
+    {
+      "name": "newbalanceDest",
+      "type": "numerical",
+      "scaling": "optional_trees_passthrough",
+      "available_before_authorization": false,
+      "note": "Post-tx external recipient balance; PaySim limitation"
+    },
+    {
+      "name": "errorBalanceOrig",
+      "type": "numerical_engineered",
+      "formula": "oldbalanceOrg - amount - newbalanceOrig",
+      "available_before_authorization": true
+    },
+    {
+      "name": "errorBalanceDest",
+      "type": "numerical_engineered",
+      "formula": "oldbalanceDest + amount - newbalanceDest",
+      "available_before_authorization": false
+    },
+    {
+      "name": "hourOfDay",
+      "type": "numerical_engineered",
+      "formula": "step % 24",
+      "available_before_authorization": true
+    },
+    {
+      "name": "isMerchantDest",
+      "type": "binary_engineered",
+      "formula": "1 if nameDest.startswith('M') else 0",
+      "available_before_authorization": true
+    },
+    {
+      "name": "amountToBalanceRatio",
+      "type": "numerical_engineered",
+      "formula": "amount / (oldbalanceOrg + 1.0)",
+      "available_before_authorization": true
+    }
+  ],
+  "transformed_matrix_total_columns": 15,
+  "risk_thresholds": {
+    "low_max": 30,
+    "medium_max": 70,
+    "high_max": 100
+  },
+  "training_strategy": {
+    "test_size": 0.2,
+    "stratified": true,
+    "random_state": 42,
+    "imbalance_handling": "class_weight_balanced"
+  }
+}

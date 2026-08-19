@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}FraudShield AI - Online Payment Fraud Detection System{% endblock %}</title>
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Custom Stylesheet -->
+  <link rel="stylesheet" href="/static/css/style.css">
+  {% block extra_css %}{% endblock %}
+</head>
+<body>
+
+  <!-- Top Navigation Bar -->
+  <nav class="navbar-custom">
+    <div style="max-width: 1200px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; width: 100%;">
+      <a href="/dashboard" class="brand-logo">
+        <div class="brand-icon">🛡️</div>
+        <span>FraudShield <span style="color: var(--primary); font-size: 0.85em;">AI</span></span>
+      </a>
+
+      <div id="nav-authenticated-links" style="display: flex; align-items: center; gap: 0.5rem;">
+        <a href="/dashboard" class="nav-link-custom {% if active_page == 'dashboard' %}active{% endif %}">Dashboard</a>
+        <a href="/payment" class="nav-link-custom {% if active_page == 'payment' %}active{% endif %}">Make Transfer</a>
+        <a href="/history" class="nav-link-custom {% if active_page == 'history' %}active{% endif %}">Ledger History</a>
+        <button id="btn-logout" class="btn-secondary-custom" style="padding: 0.45rem 0.9rem; font-size: 0.85rem; margin-left: 0.5rem;" onclick="logoutUser()">
+          Sign Out
+        </button>
+      </div>
+
+      <div id="nav-unauthenticated-links" style="display: none; align-items: center; gap: 0.5rem;">
+        <a href="/login" class="nav-link-custom {% if active_page == 'login' %}active{% endif %}">Sign In</a>
+        <a href="/register" class="btn-primary-custom" style="padding: 0.45rem 1rem; font-size: 0.85rem;">Register</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main Content Body -->
+  <main class="app-container">
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- SHAP Explainability Slide-In Drawer -->
+  <div id="shap-drawer-overlay" class="drawer-overlay">
+    <div id="shap-drawer-panel" class="drawer-panel">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+        <div>
+          <h3 style="font-size: 1.35rem; color: #fff;">AI Risk Assessment</h3>
+          <p style="font-size: 0.8rem; color: var(--text-muted);">Explainable AI (SHAP TreeExplainer)</p>
+        </div>
+        <button id="btn-close-shap-drawer" class="btn-secondary-custom" style="padding: 0.4rem 0.75rem; font-size: 0.85rem;">✕</button>
+      </div>
+
+      <!-- Risk Score Indicator -->
+      <div class="glass-card" style="margin-bottom: 1.5rem; padding: 1.25rem; display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">Overall Risk Score</span>
+          <div id="shap-risk-score-val" style="font-size: 1.8rem; font-weight: 800; color: #fff;">--/100</div>
+        </div>
+        <span id="shap-risk-badge" class="badge-risk badge-risk-low">LOW</span>
+      </div>
+
+      <!-- Natural Language Synthesis -->
+      <div class="glass-card" style="margin-bottom: 1.5rem; padding: 1.25rem; border-left: 3px solid var(--primary);">
+        <h4 style="font-size: 0.85rem; text-transform: uppercase; color: var(--primary); margin-bottom: 0.4rem;">Natural Language Summary</h4>
+        <p id="shap-narrative-text" style="font-size: 0.9rem; color: #E2E8F0; line-height: 1.5;">
+          Loading explainability narrative...
+        </p>
+      </div>
+
+      <!-- Dynamic SHAP Feature Bars -->
+      <h4 style="font-size: 0.85rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.75rem; letter-spacing: 0.05em;">
+        Top Feature Influence (SHAP Values)
+      </h4>
+      <div id="shap-features-list">
+        <!-- Injected via JavaScript -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Adaptive OTP Modal -->
+  <div id="otp-modal-overlay" class="modal-overlay">
+    <div class="modal-box">
+      <div style="text-align: center; margin-bottom: 1.5rem;">
+        <div style="width: 56px; height: 56px; background: rgba(59, 130, 246, 0.15); border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 1.6rem; color: var(--primary); margin-bottom: 0.75rem;">
+          🔐
+        </div>
+        <h3 style="font-size: 1.35rem; color: #fff;">Two-Factor Challenge</h3>
+        <p style="font-size: 0.85rem; color: var(--text-muted);">
+          Verification required for Transaction <span id="otp-tx-id" style="color: #fff; font-weight: 700;">#--</span>
+        </p>
+      </div>
+
+      <div id="otp-dev-helper" class="glass-card" style="margin-bottom: 1rem; padding: 0.85rem; background: rgba(59, 130, 246, 0.1); border-color: rgba(59, 130, 246, 0.3); font-size: 0.85rem; display: none;">
+        <!-- Simulated OTP display for demo/dev -->
+      </div>
+
+      <div id="otp-error-msg" style="display: none; padding: 0.75rem; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #FCA5A5; border-radius: var(--radius-md); font-size: 0.85rem; margin-bottom: 1rem; text-align: center;">
+      </div>
+
+      <div style="margin-bottom: 1.5rem;">
+        <label class="form-label" style="text-align: center;">Enter 6-Digit Code</label>
+        <input type="text" id="otp-input-code" class="form-control-custom" maxlength="6" placeholder="• • • • • •" style="text-align: center; font-size: 1.5rem; letter-spacing: 0.4em; font-weight: 700;">
+      </div>
+
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; font-size: 0.85rem;">
+        <span style="color: var(--text-muted);">Expires in: <strong id="otp-timer" style="color: #fff;">03:00</strong></span>
+        <button id="btn-resend-otp" type="button" class="btn-secondary-custom" style="padding: 0.35rem 0.75rem; font-size: 0.8rem;">Resend Code</button>
+      </div>
+
+      <div style="display: flex; gap: 0.75rem;">
+        <button type="button" class="btn-secondary-custom" style="flex: 1;" onclick="window.otpModal.close()">Cancel</button>
+        <button type="button" id="btn-verify-otp" class="btn-primary-custom" style="flex: 2;">Verify Code</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Real-Time Prediction Result Modal -->
+  <div id="result-modal-overlay" class="modal-overlay">
+    <div class="modal-box" style="max-width: 540px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
+        <h3 style="font-size: 1.25rem; color: #fff;">Transaction Assessment</h3>
+        <span id="res-status-badge" class="badge-risk badge-risk-low">APPROVED</span>
+      </div>
+
+      <div class="glass-card" style="margin-bottom: 1.25rem; padding: 1.25rem;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+          <div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Transaction Risk Score</div>
+            <div id="res-risk-score" style="font-size: 1.6rem; font-weight: 800; color: #fff;">--/100</div>
+          </div>
+          <div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">ML Model Probability</div>
+            <div id="res-fraud-prob" style="font-size: 1.6rem; font-weight: 800; color: #60A5FA;">--%</div>
+          </div>
+        </div>
+
+        <div style="border-top: 1px solid var(--border-glass); padding-top: 0.75rem;">
+          <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Security Decision</div>
+          <div id="res-decision-text" style="font-weight: 600; color: #E2E8F0; font-size: 0.95rem;">--</div>
+        </div>
+      </div>
+
+      <!-- Policy Risk Factors List -->
+      <div id="res-risk-factors-container" class="glass-card" style="margin-bottom: 1.25rem; padding: 1rem; border-left: 3px solid #F59E0B; display: none;">
+        <div style="font-size: 0.75rem; color: #F59E0B; text-transform: uppercase; font-weight: 700; margin-bottom: 0.4rem;">Risk Factors Identified</div>
+        <ul id="res-risk-factors-list" style="margin: 0; padding-left: 1.2rem; font-size: 0.825rem; color: #CBD5E1; line-height: 1.5;">
+        </ul>
+      </div>
+
+      <p id="res-narrative-text" style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.5rem; line-height: 1.4;">
+        Evaluation complete.
+      </p>
+
+      <div style="display: flex; gap: 0.75rem;">
+        <button id="btn-why-flagged" type="button" class="btn-secondary-custom" style="flex: 1;">🔍 Why Flagged? (SHAP)</button>
+        <button id="btn-proceed-otp" type="button" class="btn-primary-custom" style="flex: 1; display: none;">Complete OTP</button>
+        <button id="btn-close-result-modal" type="button" class="btn-secondary-custom">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Core JavaScript Services -->
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/shap_drawer.js"></script>
+  <script src="/static/js/otp.js"></script>
+
+  <script>
+    // Universal Auth Navigation State Check
+    document.addEventListener('DOMContentLoaded', () => {
+      const isAuth = window.api.isAuthenticated();
+      const authLinks = document.getElementById('nav-authenticated-links');
+      const unauthLinks = document.getElementById('nav-unauthenticated-links');
+
+      if (isAuth) {
+        if (authLinks) authLinks.style.display = 'flex';
+        if (unauthLinks) unauthLinks.style.display = 'none';
+      } else {
+        if (authLinks) authLinks.style.display = 'none';
+        if (unauthLinks) unauthLinks.style.display = 'flex';
+      }
+    });
+
+    function logoutUser() {
+      window.api.clearSession();
+      window.location.href = '/login';
+    }
+  </script>
+
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

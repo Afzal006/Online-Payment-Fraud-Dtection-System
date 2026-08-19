@@ -1,0 +1,156 @@
+{% extends "admin/admin_base.html" %}
+
+{% block title %}Alert Triage Center - FraudShield SOC{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+  <div>
+    <h1 style="font-size: 1.75rem; color: #fff; margin-bottom: 0.25rem;">Security Incident Alert Triage</h1>
+    <p style="color: var(--text-muted); font-size: 0.875rem;">
+      Investigate automated high-risk fraud alerts, review SHAP explainability, and record resolution notes.
+    </p>
+  </div>
+
+  <div style="display: flex; gap: 0.75rem;">
+    <select id="filter-alert-status" class="form-select-custom" style="width: auto;" onchange="loadAlertsTable()">
+      <option value="">All Statuses</option>
+      <option value="OPEN" selected>OPEN</option>
+      <option value="RESOLVED">RESOLVED</option>
+      <option value="DISMISSED">DISMISSED</option>
+    </select>
+  </div>
+</div>
+
+<div class="glass-card">
+  <div class="table-responsive-custom">
+    <table class="table-custom">
+      <thead>
+        <tr>
+          <th>Alert ID</th>
+          <th>Tx Ref</th>
+          <th>User Account</th>
+          <th>Amount (₹)</th>
+          <th>Risk Assessment</th>
+          <th>Status</th>
+          <th>Message & Notes</th>
+          <th>Timestamp</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="alerts-page-tbody">
+        <!-- Dynamically Populated -->
+      </tbody>
+    </table>
+  </div>
+
+  <div id="alerts-page-empty" style="text-align: center; padding: 3rem 1rem; color: var(--text-muted); display: none;">
+    <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">✅</div>
+    <p>No security alerts found matching the selected filter.</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  document.addEventListener('DOMContentLoaded', async () => {
+    const checkRes = await window.adminApi.checkAdmin();
+    if (!checkRes || !checkRes.ok) {
+      window.location.href = '/login?admin_required=1';
+      return;
+    }
+    await loadAlertsTable();
+  });
+
+  async function loadAlertsTable() {
+    const status = document.getElementById('filter-alert-status').value;
+    const res = await window.adminApi.getAlerts(status, 100);
+    const tbody = document.getElementById('alerts-page-tbody');
+    const emptyState = document.getElementById('alerts-page-empty');
+
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    if (!res || !res.ok || !res.data.alerts || res.data.alerts.length === 0) {
+      if (emptyState) emptyState.style.display = 'block';
+      return;
+    }
+
+    if (emptyState) emptyState.style.display = 'none';
+
+    res.data.alerts.forEach((alt) => {
+      const row = document.createElement('tr');
+      const timeStr = alt.created_at ? new Date(alt.created_at).toLocaleString() : 'N/A';
+      const riskBadge = `badge-risk badge-risk-${(alt.risk_level || 'HIGH').toLowerCase()}`;
+      const statusBadge = `badge-risk badge-risk-${alt.status === 'RESOLVED' ? 'low' : (alt.status === 'OPEN' ? 'high' : 'medium')}`;
+
+      let notesSnippet = '';
+      if (alt.notes) {
+        notesSnippet = `<div style="font-size: 0.75rem; color: #34D399; margin-top: 0.2rem;"><strong>Note:</strong> ${alt.notes}</div>`;
+      }
+
+      row.innerHTML = `
+        <td style="font-weight: 700; color: #fff;">#${alt.id}</td>
+        <td style="color: #60A5FA; font-weight: 600;">Tx #${alt.transaction_id}</td>
+        <td>
+          <div style="font-weight: 600; color: #E2E8F0;">${alt.user_name}</div>
+          <div style="font-size: 0.75rem; color: var(--text-dim);">${alt.user_email}</div>
+        </td>
+        <td style="font-weight: 700; color: #fff;">₹${parseFloat(alt.transaction_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+        <td><span class="${riskBadge}">${alt.risk_level} (${alt.risk_score}/100)</span></td>
+        <td><span class="${statusBadge}">${alt.status}</span></td>
+        <td style="font-size: 0.8rem; color: var(--text-muted); max-width: 280px; overflow: hidden; text-overflow: ellipsis;">
+          <div>${alt.message}</div>
+          ${notesSnippet}
+        </td>
+        <td style="font-size: 0.8rem; color: var(--text-dim);">${timeStr}</td>
+        <td>
+          <div style="display: flex; gap: 0.4rem;">
+            <button class="btn-secondary-custom" style="padding: 0.35rem 0.65rem; font-size: 0.75rem;" onclick="investigateTx(${alt.transaction_id})">
+              SHAP
+            </button>
+            ${alt.status === 'OPEN' ? `
+              <button class="btn-primary-custom" style="padding: 0.35rem 0.65rem; font-size: 0.75rem;" onclick="resolveAlertPrompt(${alt.id})">
+                Resolve
+              </button>
+              <button class="btn-secondary-custom" style="padding: 0.35rem 0.65rem; font-size: 0.75rem;" onclick="dismissAlertPrompt(${alt.id})">
+                Dismiss
+              </button>
+            ` : ''}
+          </div>
+        </td>
+      `;
+      tbody.appendChild(row);
+    });
+  }
+
+  window.investigateTx = async function(txId) {
+    const res = await window.adminApi.getTransactionDetail(txId);
+    if (res && res.ok && res.data.transaction) {
+      const tx = res.data.transaction;
+      window.shapDrawer.open(tx.explanation || {}, tx.risk_score || 0, tx.risk_level || 'HIGH');
+    }
+  };
+
+  window.resolveAlertPrompt = async function(alertId) {
+    const note = prompt(`Enter resolution notes for Alert #${alertId}:`, 'Investigated by SOC Analyst. Verified customer authorization.');
+    if (note !== null) {
+      const res = await window.adminApi.resolveAlert(alertId, note);
+      if (res && res.ok) {
+        showToast(`Alert #${alertId} marked as RESOLVED`, 'success');
+        await loadAlertsTable();
+      }
+    }
+  };
+
+  window.dismissAlertPrompt = async function(alertId) {
+    const note = prompt(`Enter dismissal note for Alert #${alertId} (optional):`, 'False positive / simulated test pattern.');
+    if (note !== null) {
+      const res = await window.adminApi.dismissAlert(alertId, note);
+      if (res && res.ok) {
+        showToast(`Alert #${alertId} dismissed`, 'info');
+        await loadAlertsTable();
+      }
+    }
+  };
+</script>
+{% endblock %}

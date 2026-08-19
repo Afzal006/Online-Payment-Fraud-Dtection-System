@@ -1,0 +1,52 @@
+[
+  {
+    "model_name": "Tuned Random Forest",
+    "selected_configuration": "RF_Config_1 (depth=12, n=100)",
+    "parameters": {
+      "n_estimators": 100,
+      "max_depth": 12,
+      "min_samples_split": 5,
+      "class_weight": "balanced",
+      "random_state": 42
+    },
+    "cv_f1_mean": 0.9977556040024597,
+    "cv_f1_std": 0.0018325487632044211,
+    "cv_pr_auc_mean": 0.9959516840037755,
+    "test_precision": 1.0,
+    "test_recall": 0.9970149253731343,
+    "test_f1_score": 0.9985052316890882,
+    "test_pr_auc": 0.9971556911389,
+    "test_roc_auc": 0.9999265152774117,
+    "test_accuracy": 0.9999960708041099,
+    "true_positives": 334,
+    "false_positives": 0,
+    "false_negatives": 1,
+    "true_negatives": 254170,
+    "fit_time_seconds": 39.94
+  },
+  {
+    "model_name": "Tuned XGBoost",
+    "selected_configuration": "XGB_Config_3 (depth=6, lr=0.05, n=150, balanced_weight=1.0)",
+    "parameters": {
+      "n_estimators": 150,
+      "max_depth": 6,
+      "learning_rate": 0.05,
+      "scale_pos_weight": 1.0,
+      "random_state": 42
+    },
+    "cv_f1_mean": 0.9962699998040249,
+    "cv_f1_std": 0.0020400219047103114,
+    "cv_pr_auc_mean": 0.9968284029093624,
+    "test_precision": 1.0,
+    "test_recall": 0.9970149253731343,
+    "test_f1_score": 0.9985052316890882,
+    "test_pr_auc": 0.9970222292281089,
+    "test_roc_auc": 0.9983960318014914,
+    "test_accuracy": 0.9999960708041099,
+    "true_positives": 334,
+    "false_positives": 0,
+    "false_negatives": 1,
+    "true_negatives": 254170,
+    "fit_time_seconds": 5.03
+  }
+]

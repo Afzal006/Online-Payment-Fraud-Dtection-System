@@ -1,0 +1,71 @@
+{
+  "policy_name": "Four-Tier Real-Time Adaptive Payment Fraud Risk Policy",
+  "policy_version": "2.0.0",
+  "score_formula": "combined_risk_score = clamp(round(w_ml * (ml_prob * 100) + w_signals * signals_score + overrides), 0, 100)",
+  "weights": {
+    "account_drain": {
+      "ml_weight": 0.60,
+      "signals_weight": 0.40,
+      "floor_score": 85
+    },
+    "with_simulation": {
+      "ml_weight": 0.50,
+      "signals_weight": 0.50
+    },
+    "daily_transaction": {
+      "ml_weight": 0.25,
+      "signals_weight": 0.75,
+      "high_value_floor": 71
+    }
+  },
+  "thresholds": {
+    "risk_low_max": 29,
+    "risk_medium_max": 59,
+    "risk_high_max": 79,
+    "risk_critical_max": 100
+  },
+  "tiers": {
+    "LOW": {
+      "range": [0, 29],
+      "action": "APPROVE_IMMEDIATELY",
+      "initial_status": "APPROVED",
+      "requires_otp": false,
+      "alert_generated": false,
+      "flag_for_review": false,
+      "user_message": "Payment verified and approved.",
+      "description": "Standard legitimate transaction with normal behavioral patterns."
+    },
+    "MEDIUM": {
+      "range": [30, 59],
+      "action": "APPROVE_WITH_MONITORING",
+      "initial_status": "APPROVED",
+      "requires_otp": false,
+      "alert_generated": false,
+      "flag_for_review": false,
+      "user_message": "Payment completed with routine telemetry monitoring.",
+      "description": "Low-to-moderate anomaly within acceptable customer risk tolerance."
+    },
+    "HIGH": {
+      "range": [60, 79],
+      "action": "TRIGGER_OTP_VERIFICATION",
+      "initial_status": "OTP_REQUIRED",
+      "requires_otp": true,
+      "alert_generated": true,
+      "alert_severity": "HIGH",
+      "flag_for_review": false,
+      "user_message": "Additional verification required. One-time verification code sent.",
+      "description": "Elevated risk indicator requiring step-up multi-factor authentication."
+    },
+    "CRITICAL": {
+      "range": [80, 100],
+      "action": "TRIGGER_SECURITY_REVIEW",
+      "initial_status": "UNDER_REVIEW",
+      "requires_otp": true,
+      "alert_generated": true,
+      "alert_severity": "CRITICAL",
+      "flag_for_review": true,
+      "user_message": "High-risk transaction detected. Verification required and security review opened.",
+      "description": "Critical fraud indicators: triggers challenge, opens SOC incident alert, and requires security authorization."
+    }
+  }
+}

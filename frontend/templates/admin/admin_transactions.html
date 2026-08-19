@@ -1,0 +1,435 @@
+{% extends "admin/admin_base.html" %}
+
+{% block title %}All Customer Transactions - FraudShield SOC{% endblock %}
+
+{% block content %}
+<!-- Page Header -->
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+  <div>
+    <h1 style="font-size: 1.75rem; color: #fff; margin-bottom: 0.25rem;">All Customer Transactions & Audit Ledger</h1>
+    <p style="color: var(--text-muted); font-size: 0.875rem;">
+      Search, filter, and deeply investigate all customer payments evaluated by the Hybrid AI Engine.
+    </p>
+  </div>
+</div>
+
+<!-- Search & Filter Toolbar -->
+<div class="glass-card" style="margin-bottom: 1.5rem; padding: 1.25rem;">
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.85rem; align-items: end;">
+    <!-- Search Input -->
+    <div style="grid-column: span 2;">
+      <label class="form-label" style="font-size: 0.75rem;">Search Transactions</label>
+      <input type="text" id="admin-search-input" class="form-control-custom" placeholder="Search by Tx ID (#108), Customer Email, or Recipient..." onkeyup="handleSearchKey(event)">
+    </div>
+
+    <!-- Risk Filter -->
+    <div>
+      <label class="form-label" style="font-size: 0.75rem;">Risk Tier</label>
+      <select id="filter-admin-risk" class="form-select-custom" onchange="loadGlobalTransactions()">
+        <option value="">All Tiers</option>
+        <option value="LOW">LOW (0-29)</option>
+        <option value="MEDIUM">MEDIUM (30-59)</option>
+        <option value="HIGH">HIGH (60-79)</option>
+        <option value="CRITICAL">CRITICAL (80-100)</option>
+      </select>
+    </div>
+
+    <!-- Status Filter -->
+    <div>
+      <label class="form-label" style="font-size: 0.75rem;">Status</label>
+      <select id="filter-admin-status" class="form-select-custom" onchange="loadGlobalTransactions()">
+        <option value="">All Statuses</option>
+        <option value="APPROVED">APPROVED</option>
+        <option value="UNDER_REVIEW">UNDER REVIEW</option>
+        <option value="OTP_REQUIRED">OTP REQUIRED</option>
+        <option value="VERIFIED_PENDING_REVIEW">VERIFIED PENDING REVIEW</option>
+        <option value="REJECTED">REJECTED</option>
+      </select>
+    </div>
+
+    <!-- Type Filter -->
+    <div>
+      <label class="form-label" style="font-size: 0.75rem;">Type</label>
+      <select id="filter-admin-type" class="form-select-custom" onchange="loadGlobalTransactions()">
+        <option value="">All Types</option>
+        <option value="TRANSFER">TRANSFER</option>
+        <option value="CASH_OUT">CASH OUT</option>
+        <option value="PAYMENT">PAYMENT</option>
+        <option value="DEBIT">DEBIT</option>
+      </select>
+    </div>
+
+    <!-- Sort Order -->
+    <div>
+      <label class="form-label" style="font-size: 0.75rem;">Sort By</label>
+      <select id="filter-admin-sort" class="form-select-custom" onchange="loadGlobalTransactions()">
+        <option value="newest" selected>Newest First</option>
+        <option value="oldest">Oldest First</option>
+        <option value="amount_desc">Amount: High to Low</option>
+        <option value="amount_asc">Amount: Low to High</option>
+        <option value="risk_desc">Risk Score: High to Low</option>
+        <option value="risk_asc">Risk Score: Low to High</option>
+      </select>
+    </div>
+  </div>
+</div>
+
+<!-- Transactions Table -->
+<div class="glass-card">
+  <div class="table-responsive-custom">
+    <table class="table-custom">
+      <thead>
+        <tr>
+          <th>Tx ID</th>
+          <th>Customer Account</th>
+          <th>Type</th>
+          <th>Amount (₹)</th>
+          <th>Recipient</th>
+          <th>ML Prob</th>
+          <th>Final Risk Score</th>
+          <th>Status</th>
+          <th>Date / Time</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="admin-tx-tbody">
+        <!-- Populated via JavaScript -->
+      </tbody>
+    </table>
+  </div>
+
+  <div id="admin-tx-empty" style="text-align: center; padding: 3rem 1rem; color: var(--text-muted); display: none;">
+    <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">📜</div>
+    <p>No customer transactions found matching search and filter criteria.</p>
+  </div>
+</div>
+
+<!-- Deep Transaction Investigation Modal -->
+<div id="admin-tx-detail-modal" class="modal-overlay">
+  <div class="modal-box" style="max-width: 720px; max-height: 88vh; overflow-y: auto;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
+      <div>
+        <h3 style="font-size: 1.35rem; color: #fff; margin-bottom: 0.15rem;">Transaction Investigation</h3>
+        <p style="font-size: 0.8rem; color: var(--text-muted);">Detailed audit record & hybrid risk assessment</p>
+      </div>
+      <button type="button" class="btn-secondary-custom" style="padding: 0.35rem 0.75rem; font-size: 0.85rem;" onclick="closeDetailModal()">✕</button>
+    </div>
+
+    <!-- Core Details Grid -->
+    <div class="glass-card" style="margin-bottom: 1.25rem; padding: 1.25rem;">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+        <div>
+          <span style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Transaction ID</span>
+          <div id="modal-tx-id" style="font-size: 1.2rem; font-weight: 700; color: #fff;">#--</div>
+        </div>
+        <div>
+          <span style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Customer User</span>
+          <div id="modal-user-name" style="font-weight: 700; color: #E2E8F0;">--</div>
+          <div id="modal-user-email" style="font-size: 0.75rem; color: var(--text-dim);">--</div>
+        </div>
+        <div>
+          <span style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Type & Destination</span>
+          <div id="modal-tx-type-dest" style="font-weight: 700; color: #fff;">--</div>
+        </div>
+        <div>
+          <span style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Transfer Amount</span>
+          <div id="modal-tx-amount" style="font-size: 1.2rem; font-weight: 800; color: #60A5FA;">₹0.00</div>
+        </div>
+      </div>
+
+      <div style="border-top: 1px solid var(--border-glass); padding-top: 0.75rem; display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: var(--text-muted);">
+        <span>Date/Time: <strong id="modal-tx-time" style="color: #E2E8F0;">--</strong></span>
+        <span>Current Status: <strong id="modal-tx-status" style="color: #34D399;">--</strong></span>
+      </div>
+    </div>
+
+    <!-- Hybrid Risk Scoring Breakdown -->
+    <div class="glass-card" style="margin-bottom: 1.25rem; padding: 1.25rem;">
+      <h4 style="font-size: 0.85rem; text-transform: uppercase; color: var(--primary); margin-bottom: 0.75rem;">
+        Hybrid Risk Engine Breakdown
+      </h4>
+      <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; text-align: center; margin-bottom: 1rem;">
+        <div style="padding: 0.75rem; background: rgba(59, 130, 246, 0.1); border-radius: var(--radius-md);">
+          <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">ML Fraud Prob</div>
+          <div id="modal-ml-prob" style="font-size: 1.4rem; font-weight: 800; color: #60A5FA;">--%</div>
+        </div>
+        <div style="padding: 0.75rem; background: rgba(245, 158, 11, 0.1); border-radius: var(--radius-md);">
+          <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Rule Policy Score</div>
+          <div id="modal-rule-score" style="font-size: 1.4rem; font-weight: 800; color: #FBBF24;">--/100</div>
+        </div>
+        <div style="padding: 0.75rem; background: rgba(239, 68, 68, 0.1); border-radius: var(--radius-md);">
+          <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Final Combined Risk</div>
+          <div id="modal-final-score" style="font-size: 1.4rem; font-weight: 800; color: #EF4444;">--/100</div>
+        </div>
+      </div>
+
+      <!-- Policy Risk Factors -->
+      <div id="modal-factors-box" style="margin-top: 0.75rem; display: none;">
+        <div style="font-size: 0.75rem; color: #F59E0B; text-transform: uppercase; font-weight: 700; margin-bottom: 0.35rem;">Triggered Risk Policy Signals:</div>
+        <ul id="modal-factors-list" style="margin: 0; padding-left: 1.2rem; font-size: 0.8rem; color: #CBD5E1; line-height: 1.4;"></ul>
+      </div>
+    </div>
+
+    <!-- Account Balance Simulation Context -->
+    <div class="glass-card" style="margin-bottom: 1.25rem; padding: 1.25rem;">
+      <h4 style="font-size: 0.85rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.5rem;">
+        Account Balance Simulation Context
+      </h4>
+      <div id="modal-balance-context" style="font-size: 0.85rem; color: #CBD5E1; line-height: 1.5;">
+        --
+      </div>
+    </div>
+
+    <!-- Security Alert & Incident Management -->
+    <div id="modal-alert-box" class="glass-card" style="margin-bottom: 1.25rem; padding: 1.25rem; border-left: 4px solid #EF4444; display: none;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+        <h4 style="font-size: 0.85rem; text-transform: uppercase; color: #EF4444; font-weight: 700;">
+          Security Alert Record
+        </h4>
+        <span id="modal-alert-status-badge" class="badge-risk badge-risk-high">OPEN</span>
+      </div>
+      <p id="modal-alert-message" style="font-size: 0.85rem; color: #E2E8F0; margin-bottom: 0.75rem;"></p>
+      
+      <div id="modal-alert-notes-container" style="font-size: 0.8rem; color: var(--text-dim); background: rgba(0,0,0,0.3); padding: 0.75rem; border-radius: var(--radius-sm); margin-bottom: 0.75rem; display: none;">
+        <strong>Resolution Notes:</strong> <span id="modal-alert-notes">--</span><br>
+        <span style="font-size: 0.75rem;">Resolved by <span id="modal-alert-resolver">--</span> on <span id="modal-alert-resolved-at">--</span></span>
+      </div>
+
+      <div id="modal-alert-actions" style="display: flex; gap: 0.5rem;">
+        <button id="modal-btn-resolve-alert" class="btn-primary-custom" style="padding: 0.4rem 0.9rem; font-size: 0.8rem;">
+          Resolve Alert with Notes
+        </button>
+      </div>
+    </div>
+
+    <!-- SHAP Explainability & Top Features -->
+    <div class="glass-card" style="margin-bottom: 1.25rem; padding: 1.25rem;">
+      <h4 style="font-size: 0.85rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.5rem;">
+        Explainable AI (SHAP Natural Language Summary)
+      </h4>
+      <p id="modal-shap-narrative" style="font-size: 0.85rem; color: #E2E8F0; line-height: 1.5; margin-bottom: 1rem;">
+        Loading explanation...
+      </p>
+      <div id="modal-shap-features-list"></div>
+    </div>
+
+    <div style="text-align: right;">
+      <button type="button" class="btn-secondary-custom" onclick="closeDetailModal()">Close Investigation</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  let currentActiveAlertId = null;
+
+  document.addEventListener('DOMContentLoaded', async () => {
+    const checkRes = await window.adminApi.checkAdmin();
+    if (!checkRes || !checkRes.ok) {
+      window.location.href = '/login?admin_required=1';
+      return;
+    }
+    await loadGlobalTransactions();
+  });
+
+  function handleSearchKey(e) {
+    if (e.key === 'Enter') {
+      loadGlobalTransactions();
+    }
+  }
+
+  async function loadGlobalTransactions() {
+    const type = document.getElementById('filter-admin-type').value;
+    const risk = document.getElementById('filter-admin-risk').value;
+    const status = document.getElementById('filter-admin-status').value;
+    const search = document.getElementById('admin-search-input').value.trim();
+    const sortBy = document.getElementById('filter-admin-sort').value;
+
+    const res = await window.adminApi.getTransactions(100, risk, type, status, search, sortBy);
+    const tbody = document.getElementById('admin-tx-tbody');
+    const emptyState = document.getElementById('admin-tx-empty');
+
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    if (!res || !res.ok || !res.data.transactions || res.data.transactions.length === 0) {
+      if (emptyState) emptyState.style.display = 'block';
+      return;
+    }
+
+    if (emptyState) emptyState.style.display = 'none';
+
+    res.data.transactions.forEach((tx) => {
+      const row = document.createElement('tr');
+      const timeStr = tx.created_at ? new Date(tx.created_at).toLocaleString() : 'N/A';
+      const riskBadge = `badge-risk badge-risk-${(tx.risk_level || 'LOW').toLowerCase()}`;
+      const mlProbPct = ((tx.fraud_probability || 0) * 100).toFixed(1);
+
+      row.innerHTML = `
+        <td style="font-weight: 700; color: #fff;">#${tx.id}</td>
+        <td>
+          <div style="font-weight: 600; color: #E2E8F0;">
+            <a href="/admin/customers/${tx.user_id}" style="color: #60A5FA; text-decoration: none;" title="View Customer Profile">
+              ${tx.user_name || 'Customer'}
+            </a>
+          </div>
+          <div style="font-size: 0.75rem; color: var(--text-dim);">${tx.user_email || 'N/A'} (ID #${tx.user_id})</div>
+        </td>
+        <td><span style="font-weight: 600;">${tx.type}</span></td>
+        <td style="font-weight: 700; color: #fff;">₹${parseFloat(tx.amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+        <td style="color: var(--text-muted); font-size: 0.85rem;">${tx.name_dest || 'N/A'}</td>
+        <td>
+          <span style="font-weight: 600; color: ${tx.prediction === 1 ? '#F87171' : '#60A5FA'};">
+            ${mlProbPct}%
+          </span>
+        </td>
+        <td><span class="${riskBadge}">${tx.risk_level} (${tx.risk_score}/100)</span></td>
+        <td>
+          <span style="font-weight: 600; color: ${tx.status === 'APPROVED' ? '#34D399' : (tx.status === 'REJECTED' ? '#F87171' : '#FBBF24')};">
+            ${tx.status.replace(/_/g, ' ')}
+          </span>
+        </td>
+        <td style="font-size: 0.8rem; color: var(--text-dim);">${timeStr}</td>
+        <td>
+          <button class="btn-primary-custom" style="padding: 0.35rem 0.7rem; font-size: 0.75rem;" onclick="openTransactionDetail(${tx.id})">
+            View Details
+          </button>
+        </td>
+      `;
+      tbody.appendChild(row);
+    });
+  }
+
+  async function openTransactionDetail(txId) {
+    const res = await window.adminApi.getTransactionDetail(txId);
+    if (!res || !res.ok || !res.data) {
+      showToast('Failed to load transaction details.', 'error');
+      return;
+    }
+
+    const tx = res.data.transaction;
+    const user = res.data.user || {};
+    const alert = res.data.alert || null;
+    const explanation = tx.explanation || {};
+
+    // 1. Header & User
+    document.getElementById('modal-tx-id').textContent = `#${tx.id}`;
+    document.getElementById('modal-user-name').textContent = user.name || 'Customer Account';
+    document.getElementById('modal-user-email').textContent = `${user.email || 'N/A'} (ID: ${user.id || 'N/A'})`;
+    document.getElementById('modal-tx-type-dest').textContent = `${tx.type} → ${tx.name_dest || 'N/A'}`;
+    document.getElementById('modal-tx-amount').textContent = `₹${parseFloat(tx.amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    document.getElementById('modal-tx-time').textContent = tx.created_at ? new Date(tx.created_at).toLocaleString() : 'N/A';
+    document.getElementById('modal-tx-status').textContent = tx.status.replace(/_/g, ' ');
+
+    // 2. Scores & Risk
+    const mlProb = explanation.ml_fraud_probability !== undefined ? explanation.ml_fraud_probability : tx.fraud_probability;
+    const mlProbPct = (mlProb * 100).toFixed(1);
+    const ruleScore = explanation.rule_score !== undefined ? explanation.rule_score : '--';
+    const finalScore = tx.risk_score;
+
+    document.getElementById('modal-ml-prob').textContent = `${mlProbPct}%`;
+    document.getElementById('modal-rule-score').textContent = `${ruleScore}/100`;
+    document.getElementById('modal-final-score').textContent = `${finalScore}/100`;
+
+    // 3. Policy Risk Factors
+    const factors = explanation.rule_risk_factors || [];
+    const factorsBox = document.getElementById('modal-factors-box');
+    const factorsList = document.getElementById('modal-factors-list');
+    factorsList.innerHTML = '';
+    if (factors.length > 0) {
+      factors.forEach(f => {
+        const li = document.createElement('li');
+        li.textContent = f;
+        factorsList.appendChild(li);
+      });
+      factorsBox.style.display = 'block';
+    } else {
+      factorsBox.style.display = 'none';
+    }
+
+    // 4. Account Simulation Context
+    const balBox = document.getElementById('modal-balance-context');
+    if (explanation.has_account_simulation) {
+      balBox.innerHTML = `
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+          <div>Sender Balance Before: <strong>₹${parseFloat(tx.oldbalance_org || 0).toLocaleString('en-IN')}</strong></div>
+          <div>Sender Balance After: <strong>₹${parseFloat(tx.newbalance_orig || 0).toLocaleString('en-IN')}</strong></div>
+          <div>Receiver Balance Before: <strong>₹${parseFloat(tx.oldbalance_dest || 0).toLocaleString('en-IN')}</strong></div>
+          <div>Receiver Balance After: <strong>₹${parseFloat(tx.newbalance_dest || 0).toLocaleString('en-IN')}</strong></div>
+        </div>
+      `;
+    } else {
+      balBox.innerHTML = `
+        <span style="color: var(--text-dim);">No explicit account balance simulation was provided by the user. Risk evaluated automatically by hybrid transaction rules.</span>
+      `;
+    }
+
+    // 5. Security Alert Details
+    const alertBox = document.getElementById('modal-alert-box');
+    const alertNotesContainer = document.getElementById('modal-alert-notes-container');
+    if (alert) {
+      currentActiveAlertId = alert.id;
+      alertBox.style.display = 'block';
+      document.getElementById('modal-alert-status-badge').textContent = alert.status;
+      document.getElementById('modal-alert-message').textContent = alert.message;
+
+      if (alert.status === 'RESOLVED' || alert.notes) {
+        alertNotesContainer.style.display = 'block';
+        document.getElementById('modal-alert-notes').textContent = alert.notes || 'No resolution notes provided.';
+        document.getElementById('modal-alert-resolver').textContent = alert.resolved_by || 'SOC Admin';
+        document.getElementById('modal-alert-resolved-at').textContent = alert.resolved_at ? new Date(alert.resolved_at).toLocaleString() : 'N/A';
+        document.getElementById('modal-btn-resolve-alert').style.display = 'none';
+      } else {
+        alertNotesContainer.style.display = 'none';
+        const resolveBtn = document.getElementById('modal-btn-resolve-alert');
+        resolveBtn.style.display = 'inline-flex';
+        resolveBtn.onclick = () => openModalResolveAlert(alert.id);
+      }
+    } else {
+      alertBox.style.display = 'none';
+      currentActiveAlertId = null;
+    }
+
+    // 6. SHAP Narrative & Top Features
+    document.getElementById('modal-shap-narrative').textContent = explanation.explanation_text || explanation.human_readable_summary || 'No narrative generated.';
+    const shapList = document.getElementById('modal-shap-features-list');
+    shapList.innerHTML = '';
+    if (explanation.top_features && explanation.top_features.length > 0) {
+      explanation.top_features.forEach(f => {
+        const item = document.createElement('div');
+        item.style.marginBottom = '0.5rem';
+        item.style.fontSize = '0.8rem';
+        item.innerHTML = `
+          <div style="display: flex; justify-content: space-between; color: #CBD5E1; margin-bottom: 0.2rem;">
+            <span>${f.feature}</span>
+            <span style="font-weight: 700; color: ${f.direction === 'INCREASES_FRAUD_RISK' ? '#F87171' : '#34D399'};">${f.human_readable_impact}</span>
+          </div>
+        `;
+        shapList.appendChild(item);
+      });
+    }
+
+    // Show modal
+    document.getElementById('admin-tx-detail-modal').classList.add('active');
+  }
+
+  function closeDetailModal() {
+    document.getElementById('admin-tx-detail-modal').classList.remove('active');
+  }
+
+  async function openModalResolveAlert(alertId) {
+    const note = prompt(`Enter investigation / resolution notes for Alert #${alertId}:`, 'Verified with customer account holder. Authorized transaction.');
+    if (note !== null) {
+      const res = await window.adminApi.resolveAlert(alertId, note);
+      if (res && res.ok) {
+        showToast(`Alert #${alertId} resolved successfully.`, 'success');
+        closeDetailModal();
+        await loadGlobalTransactions();
+      } else {
+        showToast('Failed to resolve alert.', 'error');
+      }
+    }
+  }
+</script>
+{% endblock %}

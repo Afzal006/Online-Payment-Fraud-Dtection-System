@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+.venv
+venv/
+ENV/
+
+# Environment Variables
+.env
+!.env.example
+
+# Pytest / Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated
+.DS_Store
+Thumbs.db
+
+# Node / Frontend
+node_modules/
+
+# Local databases / instance
+instance/
+*.db
+*.sqlite
+*.sqlite3
+
+# Dataset files (large files)
+dataset/*.csv
+dataset/*.zip
+!dataset/.gitkeep
+
+# ML artifacts (large binary models if needed)
+# ml/artifacts/*.joblib

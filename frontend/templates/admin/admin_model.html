@@ -1,0 +1,142 @@
+{% extends "admin/admin_base.html" %}
+
+{% block title %}Model Registry & Drift Telemetry - FraudShield SOC{% endblock %}
+
+{% block content %}
+<div style="margin-bottom: 1.5rem;">
+  <h1 style="font-size: 1.75rem; color: #fff; margin-bottom: 0.25rem;">ML Model Telemetry & Data Drift Monitor</h1>
+  <p style="color: var(--text-muted); font-size: 0.875rem;">
+    Production model packaging specifications, validation benchmarks, and feature divergence telemetry.
+  </p>
+</div>
+
+<!-- Primary Model Card -->
+<div class="glass-card" style="margin-bottom: 1.5rem;">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
+    <div>
+      <h2 style="font-size: 1.35rem; color: #fff;" id="reg-model-name">Tuned Random Forest Fraud Classifier</h2>
+      <p style="color: var(--text-muted); font-size: 0.85rem;">
+        Artifact: <code style="color: #60A5FA;">ml/artifacts/model.joblib</code> | Version: <strong id="reg-model-ver" style="color: #fff;">1.0.0</strong>
+      </p>
+    </div>
+    <span class="badge-risk badge-risk-low">Production Active</span>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+    <div style="background: rgba(0,0,0,0.25); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-glass);">
+      <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Validation Precision</div>
+      <div id="reg-precision" style="font-size: 1.6rem; font-weight: 800; color: #34D399;">100.0%</div>
+      <div style="font-size: 0.75rem; color: var(--text-dim);">Zero False Positives in test</div>
+    </div>
+
+    <div style="background: rgba(0,0,0,0.25); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-glass);">
+      <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Validation Recall</div>
+      <div id="reg-recall" style="font-size: 1.6rem; font-weight: 800; color: #60A5FA;">99.7%</div>
+      <div style="font-size: 0.75rem; color: var(--text-dim);">Detects 99.7% of fraud</div>
+    </div>
+
+    <div style="background: rgba(0,0,0,0.25); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-glass);">
+      <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">F1-Score</div>
+      <div id="reg-f1" style="font-size: 1.6rem; font-weight: 800; color: #A78BFA;">0.9985</div>
+      <div style="font-size: 0.75rem; color: var(--text-dim);">Harmonic mean metric</div>
+    </div>
+
+    <div style="background: rgba(0,0,0,0.25); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-glass);">
+      <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">PR-AUC</div>
+      <div id="reg-prauc" style="font-size: 1.6rem; font-weight: 800; color: #FBBF24;">0.9995</div>
+      <div style="font-size: 0.75rem; color: var(--text-dim);">Precision-Recall Area</div>
+    </div>
+  </div>
+
+  <!-- Model Specifications Table -->
+  <h3 style="font-size: 1rem; color: #fff; margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">
+    Hyperparameters & Pipeline Architecture
+  </h3>
+  <div class="table-responsive-custom">
+    <table class="table-custom" style="font-size: 0.85rem;">
+      <tbody>
+        <tr>
+          <td style="color: var(--text-muted); width: 220px;">Algorithm</td>
+          <td style="color: #fff; font-weight: 600;">Random Forest Classifier (scikit-learn)</td>
+        </tr>
+        <tr>
+          <td style="color: var(--text-muted);">Feature Count</td>
+          <td style="color: #fff; font-weight: 600;">11 engineered features (15 transformed columns via OneHotEncoder)</td>
+        </tr>
+        <tr>
+          <td style="color: var(--text-muted);">Class Imbalance Handling</td>
+          <td style="color: #fff; font-weight: 600;">class_weight='balanced_subsample' (773.7:1 dataset ratio)</td>
+        </tr>
+        <tr>
+          <td style="color: var(--text-muted);">Explainability Engine</td>
+          <td style="color: #fff; font-weight: 600;">TreeExplainer (SHAP) with Natural Language Risk Synthesis</td>
+        </tr>
+        <tr>
+          <td style="color: var(--text-muted);">Risk Engine Architecture</td>
+          <td style="color: #fff; font-weight: 600;">Hybrid AI Engine (ML Model Probability + Rule Policy Engine)</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Data Drift Telemetry Card -->
+<div class="glass-card">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+    <div>
+      <h2 style="font-size: 1.25rem; color: #fff;">Feature & Data Drift Telemetry</h2>
+      <p style="font-size: 0.8rem; color: var(--text-muted);">
+        Statistical distance calculation comparing live inference stream against PaySim training baseline
+      </p>
+    </div>
+    <span id="page-drift-badge" class="badge-risk badge-risk-low">NORMAL</span>
+  </div>
+
+  <div class="glass-card" style="background: rgba(0,0,0,0.25); margin-bottom: 1rem; padding: 1.25rem;">
+    <div style="font-size: 0.95rem; font-weight: 600; color: #fff; margin-bottom: 0.5rem;" id="page-drift-summary">
+      Divergence Score: 0.0%
+    </div>
+    <p id="page-drift-desc" style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.5;">
+      Feature distributions align with reference validation distribution.
+    </p>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  document.addEventListener('DOMContentLoaded', async () => {
+    const checkRes = await window.adminApi.checkAdmin();
+    if (!checkRes || !checkRes.ok) {
+      window.location.href = '/login?admin_required=1';
+      return;
+    }
+
+    const res = await window.adminApi.getModelInfo();
+    if (res && res.ok) {
+      const meta = res.data.model_metadata || {};
+      const drift = res.data.data_drift || {};
+      const metrics = meta.benchmark_metrics || meta.test_metrics || {};
+
+      document.getElementById('reg-model-name').textContent = meta.model_name || 'Tuned Random Forest Fraud Classifier';
+      document.getElementById('reg-model-ver').textContent = meta.model_version || '1.0.0';
+
+      if (metrics.precision) document.getElementById('reg-precision').textContent = (metrics.precision * 100).toFixed(1) + '%';
+      if (metrics.recall) document.getElementById('reg-recall').textContent = (metrics.recall * 100).toFixed(1) + '%';
+      if (metrics.f1_score) document.getElementById('reg-f1').textContent = metrics.f1_score.toFixed(4);
+      if (metrics.pr_auc) document.getElementById('reg-prauc').textContent = metrics.pr_auc.toFixed(4);
+
+      const driftBadge = document.getElementById('page-drift-badge');
+      if (driftBadge) {
+        driftBadge.textContent = drift.status;
+        if (drift.status === 'NORMAL') driftBadge.className = 'badge-risk badge-risk-low';
+        else if (drift.status === 'WARNING') driftBadge.className = 'badge-risk badge-risk-medium';
+        else driftBadge.className = 'badge-risk badge-risk-high';
+      }
+
+      document.getElementById('page-drift-summary').textContent = `Divergence Score: ${(drift.drift_score * 100).toFixed(1)}% (${drift.status})`;
+      document.getElementById('page-drift-desc').textContent = drift.message;
+    }
+  });
+</script>
+{% endblock %}

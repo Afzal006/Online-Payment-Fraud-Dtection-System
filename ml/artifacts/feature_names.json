@@ -1,0 +1,47 @@
+{
+  "logical_features": [
+    "type",
+    "amount",
+    "oldbalanceOrg",
+    "newbalanceOrig",
+    "oldbalanceDest",
+    "newbalanceDest",
+    "errorBalanceOrig",
+    "errorBalanceDest",
+    "isMerchantDest",
+    "amountToBalanceRatio",
+    "hourOfDay"
+  ],
+  "transformed_features": [
+    "cat__type_CASH_OUT",
+    "cat__type_TRANSFER",
+    "cat__type_PAYMENT",
+    "cat__type_CASH_IN",
+    "cat__type_DEBIT",
+    "num__amount",
+    "num__oldbalanceOrg",
+    "num__newbalanceOrig",
+    "num__oldbalanceDest",
+    "num__newbalanceDest",
+    "num__errorBalanceOrig",
+    "num__errorBalanceDest",
+    "num__isMerchantDest",
+    "num__amountToBalanceRatio",
+    "num__hourOfDay"
+  ],
+  "categorical_features": [
+    "type"
+  ],
+  "numerical_features": [
+    "amount",
+    "oldbalanceOrg",
+    "newbalanceOrig",
+    "oldbalanceDest",
+    "newbalanceDest",
+    "errorBalanceOrig",
+    "errorBalanceDest",
+    "isMerchantDest",
+    "amountToBalanceRatio",
+    "hourOfDay"
+  ]
+}

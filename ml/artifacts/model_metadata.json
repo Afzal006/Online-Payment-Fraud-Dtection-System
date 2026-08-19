@@ -1,0 +1,94 @@
+{
+  "model_name": "Random Forest Fraud Classifier",
+  "model_type": "RandomForestClassifier",
+  "model_version": "1.0.0",
+  "status": "APPROVED_PRODUCTION",
+  "artifact_path": "ml/artifacts/model.joblib",
+  "preprocessor_path": "ml/artifacts/preprocessor.joblib",
+  "feature_names_path": "ml/artifacts/feature_names.json",
+  "training_dataset": "PaySim Online Payments Fraud Detection Dataset",
+  "training_date": "2026-08-18",
+  "random_state": 42,
+  "class_imbalance_strategy": "class_weight='balanced'",
+  "training_split": {
+    "total_rows_evaluated": 1272524,
+    "train_rows": 1018019,
+    "test_rows": 254505,
+    "test_size": 0.2,
+    "stratified": true,
+    "imbalance_ratio": 773.7
+  },
+  "selected_hyperparameters": {
+    "n_estimators": 100,
+    "max_depth": 12,
+    "min_samples_split": 5,
+    "class_weight": "balanced",
+    "random_state": 42,
+    "n_jobs": -1
+  },
+  "cv_5fold_metrics": {
+    "f1_mean": 0.9978,
+    "f1_std": 0.0018,
+    "pr_auc_mean": 0.9960,
+    "pr_auc_std": 0.0034,
+    "recall_mean": 0.9955,
+    "recall_std": 0.0037,
+    "precision_mean": 1.0,
+    "precision_std": 0.0,
+    "roc_auc_mean": 0.9984,
+    "roc_auc_std": 0.0015
+  },
+  "holdout_test_metrics": {
+    "precision": 1.0,
+    "recall": 0.9970,
+    "f1_score": 0.9985,
+    "pr_auc": 0.9972,
+    "roc_auc": 0.9999,
+    "accuracy": 0.999996,
+    "true_positives": 334,
+    "false_positives": 0,
+    "false_negatives": 1,
+    "true_negatives": 254170
+  },
+  "feature_schema": {
+    "logical_features_count": 11,
+    "logical_features": [
+      "type",
+      "amount",
+      "oldbalanceOrg",
+      "newbalanceOrig",
+      "oldbalanceDest",
+      "newbalanceDest",
+      "errorBalanceOrig",
+      "errorBalanceDest",
+      "isMerchantDest",
+      "amountToBalanceRatio",
+      "hourOfDay"
+    ],
+    "transformed_features_count": 15,
+    "transformed_features": [
+      "cat__type_CASH_OUT",
+      "cat__type_TRANSFER",
+      "cat__type_PAYMENT",
+      "cat__type_CASH_IN",
+      "cat__type_DEBIT",
+      "num__amount",
+      "num__oldbalanceOrg",
+      "num__newbalanceOrig",
+      "num__oldbalanceDest",
+      "num__newbalanceDest",
+      "num__errorBalanceOrig",
+      "num__errorBalanceDest",
+      "num__isMerchantDest",
+      "num__amountToBalanceRatio",
+      "num__hourOfDay"
+    ]
+  },
+  "environment": {
+    "python": "3.14.3",
+    "scikit_learn": "1.8.0",
+    "joblib": "1.5.3",
+    "pandas": "2.3.3",
+    "numpy": "2.4.2"
+  }
+}

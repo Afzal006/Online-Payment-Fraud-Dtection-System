@@ -1,0 +1,44 @@
+[
+  {
+    "model_name": "Logistic Regression",
+    "accuracy": 0.9458006718924972,
+    "precision": 0.022764342954400395,
+    "recall": 0.9582089552238806,
+    "f1_score": 0.04447215295095595,
+    "pr_auc": 0.5278666112295682,
+    "roc_auc": 0.9871649013851934,
+    "true_positives": 321,
+    "false_positives": 13780,
+    "true_negatives": 240390,
+    "false_negatives": 14,
+    "train_duration_seconds": 8.6
+  },
+  {
+    "model_name": "Decision Tree",
+    "accuracy": 0.9997996110096069,
+    "precision": 0.8697916666666666,
+    "recall": 0.9970149253731343,
+    "f1_score": 0.9290681502086231,
+    "pr_auc": 0.9970188545690244,
+    "roc_auc": 0.99850716907652,
+    "true_positives": 334,
+    "false_positives": 50,
+    "true_negatives": 254120,
+    "false_negatives": 1,
+    "train_duration_seconds": 8.78
+  },
+  {
+    "model_name": "Random Forest",
+    "accuracy": 0.9999960708041099,
+    "precision": 1.0,
+    "recall": 0.9970149253731343,
+    "f1_score": 0.9985052316890882,
+    "pr_auc": 0.9970188545690244,
+    "roc_auc": 0.9984340954079974,
+    "true_positives": 334,
+    "false_positives": 0,
+    "true_negatives": 254170,
+    "false_negatives": 1,
+    "train_duration_seconds": 39.94
+  }
+]
