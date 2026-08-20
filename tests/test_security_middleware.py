@@ -39,7 +39,10 @@ def admin_user(app_instance):
         name="SOC Analyst",
         email="soc_analyst@fraudshield.com",
         role="ADMIN",
+        is_email_verified=True,
+        is_phone_verified=True,
         is_active=True,
+        account_status="ACTIVE",
     )
     admin.set_password("AdminPass123!")
     db.session.add(admin)
@@ -55,7 +58,10 @@ def regular_user(app_instance):
         email="john_sec@example.com",
         role="USER",
         account_balance=500000.0,
+        is_email_verified=True,
+        is_phone_verified=True,
         is_active=True,
+        account_status="ACTIVE",
     )
     user.set_password("SecurePassword123!")
     db.session.add(user)

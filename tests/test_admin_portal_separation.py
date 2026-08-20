@@ -48,19 +48,19 @@ def setup_multi_customers_and_admin(client, app):
     """Seed 3 distinct customers, 1 admin, and transactions for each."""
     with app.app_context():
         # Customer 1
-        c1 = User(name="Arjun Sharma", email="customer1@example.com", role="USER")
+        c1 = User(name="Arjun Sharma", email="customer1@example.com", role="USER", is_email_verified=True, is_phone_verified=True, is_active=True, account_status="ACTIVE")
         c1.set_password("UserPass2026!")
 
         # Customer 2
-        c2 = User(name="Priya Patel", email="customer2@example.com", role="USER")
+        c2 = User(name="Priya Patel", email="customer2@example.com", role="USER", is_email_verified=True, is_phone_verified=True, is_active=True, account_status="ACTIVE")
         c2.set_password("UserPass2026!")
 
         # Customer 3
-        c3 = User(name="Vikram Malhotra", email="customer3@example.com", role="USER")
+        c3 = User(name="Vikram Malhotra", email="customer3@example.com", role="USER", is_email_verified=True, is_phone_verified=True, is_active=True, account_status="ACTIVE")
         c3.set_password("UserPass2026!")
 
         # Admin
-        admin = User(name="SOC Lead Officer", email="admin_soc@example.com", role="ADMIN")
+        admin = User(name="SOC Lead Officer", email="admin_soc@example.com", role="ADMIN", is_email_verified=True, is_phone_verified=True, is_active=True, account_status="ACTIVE")
         admin.set_password("AdminPass2026!")
 
         db.session.add_all([c1, c2, c3, admin])

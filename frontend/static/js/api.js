@@ -100,10 +100,42 @@ class ApiClient {
     });
   }
 
-  async register(name, email, password) {
+  async register(name, email, password, phone_number = null) {
+    const payload = { name, email, password, role: 'USER' };
+    if (phone_number) {
+      payload.phone_number = phone_number;
+    }
     return this.request('/api/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ name, email, password, role: 'USER' }),
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async verifyEmailOtp(email, otp_code) {
+    return this.request('/api/auth/verify-email-otp', {
+      method: 'POST',
+      body: JSON.stringify({ email, otp_code }),
+    });
+  }
+
+  async resendEmailVerification(email) {
+    return this.request('/api/auth/resend-email-verification', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  async verifyPhoneOtp(phone_or_email, otp_code) {
+    return this.request('/api/auth/verify-phone-otp', {
+      method: 'POST',
+      body: JSON.stringify({ phone_number: phone_or_email, otp_code }),
+    });
+  }
+
+  async resendPhoneOtp(phone_or_email) {
+    return this.request('/api/auth/resend-phone-otp', {
+      method: 'POST',
+      body: JSON.stringify({ phone_number: phone_or_email }),
     });
   }
 

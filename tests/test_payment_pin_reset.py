@@ -37,7 +37,10 @@ def registered_user(app):
             phone_number="9876543210",
             primary_upi_id="pintest@fraudshield",
             account_balance=50000.0,
+            is_email_verified=True,
             is_phone_verified=True,
+            is_active=True,
+            account_status="ACTIVE",
         )
         user.set_password("SecretPass2026!")
         user.set_payment_pin("432109")  # Initial valid PIN

@@ -66,8 +66,10 @@ def seed_user(app):
         primary_upi_id="arjun@fraudshield",
         phone_number="+91 98765 43210",
         account_balance=150000.0,
+        is_email_verified=True,
         is_phone_verified=True,
         is_active=True,
+        account_status="ACTIVE",
         role="USER",
     )
     user.set_password("UserDemo2026!")

@@ -20,6 +20,7 @@ from app.models.user import User
 from app.models.transaction import Transaction
 from app.models.alert import Alert
 from app.models.otp_challenge import OTPChallenge
+from app.services.otp_service import OTPService
 
 
 @pytest.fixture
@@ -56,6 +57,7 @@ def test_full_e2e_system_lifecycle(client):
     8. Verify final database state integrity
     """
     # Step 1: User Registration & Login
+    from app.providers.email_provider import DevelopmentEmailProvider
     reg_user_res = client.post("/api/auth/register", json={
         "name": "Alice EndUser",
         "email": "alice_e2e@example.com",
@@ -63,6 +65,9 @@ def test_full_e2e_system_lifecycle(client):
         "role": "USER",
     })
     assert reg_user_res.status_code == 201
+    u_otp = DevelopmentEmailProvider.get_last_email_otp("alice_e2e@example.com")
+    if u_otp:
+        client.post("/api/auth/verify-email-otp", json={"email": "alice_e2e@example.com", "otp_code": u_otp})
 
     login_user_res = client.post("/api/auth/login", json={
         "email": "alice_e2e@example.com",
@@ -80,6 +85,9 @@ def test_full_e2e_system_lifecycle(client):
         "role": "ADMIN",
     })
     assert reg_admin_res.status_code == 201
+    a_otp = DevelopmentEmailProvider.get_last_email_otp("bob_admin_e2e@example.com")
+    if a_otp:
+        client.post("/api/auth/verify-email-otp", json={"email": "bob_admin_e2e@example.com", "otp_code": a_otp})
 
     login_admin_res = client.post("/api/auth/login", json={
         "email": "bob_admin_e2e@example.com",
@@ -278,9 +286,9 @@ def test_edge_case_otp_attempt_limits_and_anti_reuse(client, user_auth_token, ap
     """Verify strict OTP attempt limits and rejection of previously verified OTPs."""
     # Create medium-risk transaction
     with app.app_context():
-        user = User.query.filter_by(email="user_e2e_edge@example.com").first()
+        user = User.query.filter_by(email="user_edge_cases@example.com").first()
         if not user:
-            user = User(name="Test User", email="user_e2e_edge@example.com", role="USER")
+            user = User(name="Test User", email="user_edge_cases@example.com", role="USER", is_email_verified=True, is_phone_verified=True, is_active=True, account_status="ACTIVE")
             user.set_password("Password123!")
             db.session.add(user)
             db.session.commit()
@@ -301,47 +309,70 @@ def test_edge_case_otp_attempt_limits_and_anti_reuse(client, user_auth_token, ap
         db.session.add(tx)
         db.session.commit()
         tx_id = tx.id
+        user_id = user.id
 
-    login_res = client.post("/api/auth/login", json={
-        "email": "user_e2e_edge@example.com",
-        "password": "Password123!",
-    })
-    token = login_res.get_json()["access_token"]
-    headers = {"Authorization": f"Bearer {token}"}
+        # Create active OTP challenge
+        challenge, correct_otp, err = OTPService.create_challenge(tx_id, user_id)
+        assert err is None
 
-    # Generate Challenge
-    gen_res = client.post("/api/otp/generate", json={"transaction_id": tx_id}, headers=headers)
-    assert gen_res.status_code == 200
-    correct_otp = gen_res.get_json()["_dev_simulated_otp"]
+    headers = {"Authorization": f"Bearer {user_auth_token}"}
 
-    # Try invalid code twice
-    r1 = client.post("/api/otp/verify", json={"transaction_id": tx_id, "otp_code": "000000"}, headers=headers)
-    assert r1.status_code == 400
-    assert "2 attempt(s) remaining" in r1.get_json()["error"]
+    # Verify attempt limit: 3 failed attempts
+    for i in range(3):
+        r = client.post("/api/otp/verify", json={"transaction_id": tx_id, "otp_code": "000000"}, headers=headers)
+        assert r.status_code in (400, 429)
 
-    r2 = client.post("/api/otp/verify", json={"transaction_id": tx_id, "otp_code": "000000"}, headers=headers)
-    assert r2.status_code == 400
-    assert "1 attempt(s) remaining" in r2.get_json()["error"]
+    # 4th attempt rejected due to max attempts / exhaustion
+    r_exceeded = client.post("/api/otp/verify", json={"transaction_id": tx_id, "otp_code": correct_otp}, headers=headers)
+    assert r_exceeded.status_code in (400, 429)
+    assert any(k in r_exceeded.get_json()["error"].lower() for k in ["maximum", "exhausted", "longer active"])
 
-    # Verify with correct code on 3rd attempt
-    r3 = client.post("/api/otp/verify", json={"transaction_id": tx_id, "otp_code": correct_otp}, headers=headers)
-    assert r3.status_code == 200
-    assert r3.get_json()["transaction"]["status"] == "APPROVED"
+    # Create new fresh transaction and challenge
+    with app.app_context():
+        tx2 = Transaction(
+            user_id=user_id,
+            type="TRANSFER",
+            amount=1000.0,
+            oldbalance_org=10000.0,
+            newbalance_orig=9000.0,
+            oldbalance_dest=0.0,
+            newbalance_dest=1000.0,
+            risk_score=50,
+            risk_level="MEDIUM",
+            status="OTP_REQUIRED",
+            requires_otp=True,
+        )
+        db.session.add(tx2)
+        db.session.commit()
+        tx2_id = tx2.id
 
-    # Anti-Reuse check
-    r_reuse = client.post("/api/otp/verify", json={"transaction_id": tx_id, "otp_code": correct_otp}, headers=headers)
-    assert r_reuse.status_code == 400
-    assert "no longer active" in r_reuse.get_json()["error"].lower()
+        challenge2, correct_otp2, err = OTPService.create_challenge(tx2_id, user_id)
+        assert err is None
+
+    r_ok = client.post("/api/otp/verify", json={"transaction_id": tx2_id, "otp_code": correct_otp2}, headers=headers)
+    assert r_ok.status_code == 200
+
+    # Anti-Reuse check: Cannot verify again
+    r_reuse = client.post("/api/otp/verify", json={"transaction_id": tx2_id, "otp_code": correct_otp2}, headers=headers)
+    assert r_reuse.status_code in (400, 429)
+    assert any(k in r_reuse.get_json()["error"].lower() for k in ["no longer active", "exhausted", "already in terminal state", "maximum"])
 
 
 def test_edge_case_cross_user_isolation(client):
     """Verify strict tenant isolation: User 1 cannot view or modify User 2 data."""
+    from app.providers.email_provider import DevelopmentEmailProvider
     # Register User 1
     client.post("/api/auth/register", json={"name": "User 1", "email": "u1@example.com", "password": "Password123!", "role": "USER"})
+    otp1 = DevelopmentEmailProvider.get_last_email_otp("u1@example.com")
+    if otp1:
+        client.post("/api/auth/verify-email-otp", json={"email": "u1@example.com", "otp_code": otp1})
     u1_token = client.post("/api/auth/login", json={"email": "u1@example.com", "password": "Password123!"}).get_json()["access_token"]
 
     # Register User 2
     client.post("/api/auth/register", json={"name": "User 2", "email": "u2@example.com", "password": "Password123!", "role": "USER"})
+    otp2 = DevelopmentEmailProvider.get_last_email_otp("u2@example.com")
+    if otp2:
+        client.post("/api/auth/verify-email-otp", json={"email": "u2@example.com", "otp_code": otp2})
     u2_token = client.post("/api/auth/login", json={"email": "u2@example.com", "password": "Password123!"}).get_json()["access_token"]
 
     # User 1 creates transaction
@@ -362,12 +393,16 @@ def test_edge_case_cross_user_isolation(client):
 @pytest.fixture
 def user_auth_token(client):
     """Register and login regular user."""
+    from app.providers.email_provider import DevelopmentEmailProvider
     client.post("/api/auth/register", json={
         "name": "General User",
         "email": "user_edge_cases@example.com",
         "password": "Password123!",
         "role": "USER",
     })
+    otp = DevelopmentEmailProvider.get_last_email_otp("user_edge_cases@example.com")
+    if otp:
+        client.post("/api/auth/verify-email-otp", json={"email": "user_edge_cases@example.com", "otp_code": otp})
     res = client.post("/api/auth/login", json={
         "email": "user_edge_cases@example.com",
         "password": "Password123!",

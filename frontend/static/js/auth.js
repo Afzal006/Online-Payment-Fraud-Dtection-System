@@ -12,6 +12,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // 2. Login Form Handler
   const loginForm = document.getElementById('login-form');
   if (loginForm) {
+    // Show banner if redirected with verified notice
+    if (urlParams.get('verified') === '1' || urlParams.get('verified') === 'email') {
+      showToast('Verification complete! Please sign in with your credentials.', 'success');
+    }
+
     loginForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const email = document.getElementById('email').value.trim();
@@ -44,8 +49,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 500);
       } else {
         const errorText = (res && res.data && res.data.error) || 'Invalid email or password.';
+        const errorCode = res && res.data && res.data.code;
+        
         if (errorBox) {
-          errorBox.textContent = errorText;
+          if (errorCode === 'EMAIL_NOT_VERIFIED' || errorCode === 'PHONE_NOT_VERIFIED') {
+            errorBox.innerHTML = `<div><strong>Account Verification Required:</strong> ${errorText}</div>
+            <div style="margin-top: 6px;"><a href="/register?verify=1&email=${encodeURIComponent(email)}" style="color: #38bdf8; text-decoration: underline; font-weight: 600;">Complete Verification Now →</a></div>`;
+          } else {
+            errorBox.textContent = errorText;
+          }
           errorBox.style.display = 'block';
         }
         showToast(errorText, 'error');
@@ -53,13 +65,64 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // 3. Register Form Handler
+  // 3. Register & Verification Hub Form Handler
   const registerForm = document.getElementById('register-form');
+  const stepRegContainer = document.getElementById('step-registration-container');
+  const stepVerifyContainer = document.getElementById('step-verification-container');
+
+  let currentRegEmail = '';
+  let currentRegPhone = '';
+  let emailVerified = false;
+  let phoneVerified = false;
+
+  function updateActivationState() {
+    if (emailVerified && phoneVerified) {
+      const completeSection = document.getElementById('section-activation-complete');
+      if (completeSection) completeSection.style.display = 'block';
+      showToast('Account fully activated! You can now log in.', 'success');
+    }
+  }
+
+  function startCountdown(buttonId, originalText, durationSec = 60) {
+    const btn = document.getElementById(buttonId);
+    if (!btn) return;
+    btn.disabled = true;
+    let remaining = durationSec;
+    btn.textContent = `Resend in ${remaining}s`;
+    const interval = setInterval(() => {
+      remaining -= 1;
+      if (remaining <= 0) {
+        clearInterval(interval);
+        btn.disabled = false;
+        btn.textContent = originalText;
+      } else {
+        btn.textContent = `Resend in ${remaining}s`;
+      }
+    }, 1000);
+  }
+
+  function showVerifyHubAlert(msg, type = 'error') {
+    const alertBox = document.getElementById('verify-hub-alert');
+    if (!alertBox) return;
+    alertBox.textContent = msg;
+    if (type === 'success') {
+      alertBox.style.background = 'rgba(16, 185, 129, 0.15)';
+      alertBox.style.border = '1px solid rgba(16, 185, 129, 0.4)';
+      alertBox.style.color = '#34d399';
+    } else {
+      alertBox.style.background = 'rgba(239, 68, 68, 0.15)';
+      alertBox.style.border = '1px solid rgba(239, 68, 68, 0.4)';
+      alertBox.style.color = '#fca5a5';
+    }
+    alertBox.style.display = 'block';
+  }
+
   if (registerForm) {
     registerForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const name = document.getElementById('reg-name').value.trim();
       const email = document.getElementById('reg-email').value.trim();
+      const phone = document.getElementById('reg-phone') ? document.getElementById('reg-phone').value.trim() : '';
       const password = document.getElementById('reg-password').value;
       const confirmPassword = document.getElementById('reg-confirm-password').value;
       const submitBtn = document.getElementById('btn-register-submit');
@@ -93,15 +156,33 @@ document.addEventListener('DOMContentLoaded', () => {
       submitBtn.innerHTML = '<span>Creating Account...</span>';
       if (errorBox) errorBox.style.display = 'none';
 
-      const res = await window.api.register(name, email, password);
+      const res = await window.api.register(name, email, password, phone);
       submitBtn.disabled = false;
-      submitBtn.innerHTML = '<span>Register Account</span>';
+      submitBtn.innerHTML = '<span>Create Account & Verify</span>';
 
       if (res && res.ok) {
-        showToast('Registration successful! Please sign in.', 'success');
-        setTimeout(() => {
-          window.location.href = '/login?registered=1';
-        }, 800);
+        currentRegEmail = email;
+        currentRegPhone = phone;
+        emailVerified = false;
+        phoneVerified = !phone; // If no phone, phone is automatically resolved
+
+        // Transition to Step 2 Verification Hub
+        if (stepRegContainer) stepRegContainer.style.display = 'none';
+        if (stepVerifyContainer) stepVerifyContainer.style.display = 'block';
+
+        const emailDisplay = document.getElementById('verify-email-display');
+        if (emailDisplay) emailDisplay.textContent = email;
+
+        const phoneDisplay = document.getElementById('verify-phone-display');
+        const phoneCard = document.getElementById('card-phone-verification');
+        if (phone) {
+          if (phoneDisplay) phoneDisplay.textContent = `+91 ${phone.slice(0, 2)}******${phone.slice(-2)}`;
+          if (phoneCard) phoneCard.style.display = 'block';
+        } else {
+          if (phoneCard) phoneCard.style.display = 'none';
+        }
+
+        showToast('Account created! Please enter verification codes.', 'success');
       } else {
         const errorText = (res && res.data && res.data.error) || 'Registration failed.';
         if (errorBox) {
@@ -111,6 +192,121 @@ document.addEventListener('DOMContentLoaded', () => {
         showToast(errorText, 'error');
       }
     });
+
+    // Verification Hub: Email OTP verification button
+    const btnVerifyEmail = document.getElementById('btn-verify-email');
+    if (btnVerifyEmail) {
+      btnVerifyEmail.addEventListener('click', async () => {
+        const inputOtp = document.getElementById('input-email-otp');
+        const otpCode = inputOtp ? inputOtp.value.trim() : '';
+        if (!otpCode || otpCode.length !== 6) {
+          showVerifyHubAlert('Please enter the valid 6-digit email verification code.');
+          return;
+        }
+
+        btnVerifyEmail.disabled = true;
+        btnVerifyEmail.innerHTML = '<span>Checking...</span>';
+
+        const res = await window.api.verifyEmailOtp(currentRegEmail, otpCode);
+        btnVerifyEmail.disabled = false;
+        btnVerifyEmail.innerHTML = '<span>Verify</span>';
+
+        if (res && res.ok) {
+          emailVerified = true;
+          const badge = document.getElementById('badge-email-status');
+          if (badge) {
+            badge.textContent = 'Verified ✓';
+            badge.style.background = 'rgba(16, 185, 129, 0.2)';
+            badge.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+            badge.style.color = '#34d399';
+          }
+          const sectionInput = document.getElementById('section-email-input');
+          const sectionDone = document.getElementById('section-email-completed');
+          if (sectionInput) sectionInput.style.display = 'none';
+          if (sectionDone) sectionDone.style.display = 'flex';
+
+          showVerifyHubAlert('Email ownership verified successfully!', 'success');
+          updateActivationState();
+        } else {
+          const err = (res && res.data && res.data.error) || 'Verification code failed.';
+          showVerifyHubAlert(err, 'error');
+        }
+      });
+    }
+
+    // Verification Hub: Email OTP resend button
+    const btnResendEmail = document.getElementById('btn-resend-email-otp');
+    if (btnResendEmail) {
+      btnResendEmail.addEventListener('click', async () => {
+        if (!currentRegEmail) return;
+        const res = await window.api.resendEmailVerification(currentRegEmail);
+        if (res && res.ok) {
+          showToast('New verification code sent to your email.', 'success');
+          startCountdown('btn-resend-email-otp', 'Resend Email Code', 60);
+        } else {
+          const err = (res && res.data && res.data.error) || 'Failed to resend code.';
+          showVerifyHubAlert(err, 'error');
+        }
+      });
+    }
+
+    // Verification Hub: Phone OTP verification button
+    const btnVerifyPhone = document.getElementById('btn-verify-phone');
+    if (btnVerifyPhone) {
+      btnVerifyPhone.addEventListener('click', async () => {
+        const inputOtp = document.getElementById('input-phone-otp');
+        const otpCode = inputOtp ? inputOtp.value.trim() : '';
+        if (!otpCode || otpCode.length !== 6) {
+          showVerifyHubAlert('Please enter the 6-digit SMS OTP.');
+          return;
+        }
+
+        btnVerifyPhone.disabled = true;
+        btnVerifyPhone.innerHTML = '<span>Checking...</span>';
+
+        const res = await window.api.verifyPhoneOtp(currentRegPhone || currentRegEmail, otpCode);
+        btnVerifyPhone.disabled = false;
+        btnVerifyPhone.innerHTML = '<span>Verify</span>';
+
+        if (res && res.ok) {
+          phoneVerified = true;
+          const badge = document.getElementById('badge-phone-status');
+          if (badge) {
+            badge.textContent = 'Verified ✓';
+            badge.style.background = 'rgba(16, 185, 129, 0.2)';
+            badge.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+            badge.style.color = '#34d399';
+          }
+          const sectionInput = document.getElementById('section-phone-input');
+          const sectionDone = document.getElementById('section-phone-completed');
+          if (sectionInput) sectionInput.style.display = 'none';
+          if (sectionDone) sectionDone.style.display = 'flex';
+
+          showVerifyHubAlert('Mobile number verified successfully!', 'success');
+          updateActivationState();
+        } else {
+          const err = (res && res.data && res.data.error) || 'SMS verification code failed.';
+          showVerifyHubAlert(err, 'error');
+        }
+      });
+    }
+
+    // Verification Hub: Phone OTP resend button
+    const btnResendPhone = document.getElementById('btn-resend-phone-otp');
+    if (btnResendPhone) {
+      btnResendPhone.addEventListener('click', async () => {
+        const id = currentRegPhone || currentRegEmail;
+        if (!id) return;
+        const res = await window.api.resendPhoneOtp(id);
+        if (res && res.ok) {
+          showToast('New verification code sent via SMS.', 'success');
+          startCountdown('btn-resend-phone-otp', 'Resend SMS Code', 60);
+        } else {
+          const err = (res && res.data && res.data.error) || 'Failed to resend SMS code.';
+          showVerifyHubAlert(err, 'error');
+        }
+      });
+    }
   }
 
   // 4. Forgot Password Form Handler

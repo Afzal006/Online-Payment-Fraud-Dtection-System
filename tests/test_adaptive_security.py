@@ -29,12 +29,16 @@ def client(app):
 @pytest.fixture
 def user_token(client):
     """Register and login regular user, returning JWT."""
+    from app.providers.email_provider import DevelopmentEmailProvider
     client.post("/api/auth/register", json={
         "name": "Normal User",
         "email": "user_adaptive@example.com",
         "password": "Password123!",
         "role": "USER",
     })
+    otp = DevelopmentEmailProvider.get_last_email_otp("user_adaptive@example.com")
+    if otp:
+        client.post("/api/auth/verify-email-otp", json={"email": "user_adaptive@example.com", "otp_code": otp})
     res = client.post("/api/auth/login", json={
         "email": "user_adaptive@example.com",
         "password": "Password123!",
@@ -45,12 +49,16 @@ def user_token(client):
 @pytest.fixture
 def admin_token(client):
     """Register and login admin user, returning JWT."""
+    from app.providers.email_provider import DevelopmentEmailProvider
     client.post("/api/auth/register", json={
         "name": "Security Officer",
         "email": "admin_adaptive@example.com",
         "password": "AdminPassword123!",
         "role": "ADMIN",
     })
+    otp = DevelopmentEmailProvider.get_last_email_otp("admin_adaptive@example.com")
+    if otp:
+        client.post("/api/auth/verify-email-otp", json={"email": "admin_adaptive@example.com", "otp_code": otp})
     res = client.post("/api/auth/login", json={
         "email": "admin_adaptive@example.com",
         "password": "AdminPassword123!",
@@ -304,7 +312,7 @@ def test_user_cannot_access_other_users_otp_challenge(client, user_token, app):
     """Verify cross-user authorization block."""
     # Create User B and Transaction B
     with app.app_context():
-        user_b = User(name="User B", email="user_b@example.com", role="USER")
+        user_b = User(name="User B", email="user_b@example.com", role="USER", is_email_verified=True, is_phone_verified=True, is_active=True, account_status="ACTIVE")
         user_b.set_password("Password123!")
         db.session.add(user_b)
         db.session.commit()

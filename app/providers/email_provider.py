@@ -38,6 +38,23 @@ class EmailProvider(ABC):
         """
         pass
 
+    @abstractmethod
+    def send_email_verification_otp(
+        self,
+        recipient_email: str,
+        otp_code: str,
+        recipient_name: Optional[str] = None,
+        verification_url: Optional[str] = None,
+        expires_in_minutes: int = 5,
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Send an email ownership verification challenge containing a 6-digit OTP code and/or direct link.
+
+        Returns:
+            (success: bool, error_message: Optional[str])
+        """
+        pass
+
 
 class DevelopmentEmailProvider(EmailProvider):
     """
@@ -62,6 +79,7 @@ class DevelopmentEmailProvider(EmailProvider):
         expiry_str = expires_at.isoformat() if expires_at else "15 minutes"
 
         record = {
+            "type": "PASSWORD_RESET",
             "recipient_email": clean_email,
             "recipient_name": recipient_name or "User",
             "reset_url": reset_url,
@@ -82,6 +100,39 @@ class DevelopmentEmailProvider(EmailProvider):
 
         return True, None
 
+    def send_email_verification_otp(
+        self,
+        recipient_email: str,
+        otp_code: str,
+        recipient_name: Optional[str] = None,
+        verification_url: Optional[str] = None,
+        expires_in_minutes: int = 5,
+    ) -> Tuple[bool, Optional[str]]:
+        clean_email = str(recipient_email).strip().lower()
+
+        record = {
+            "type": "EMAIL_VERIFICATION",
+            "recipient_email": clean_email,
+            "recipient_name": recipient_name or "User",
+            "otp_code": str(otp_code).strip(),
+            "verification_url": verification_url,
+            "expires_in_minutes": expires_in_minutes,
+            "dispatched_at": datetime.now(timezone.utc),
+        }
+        self.__class__._sent_emails.append(record)
+
+        try:
+            if current_app:
+                current_app.logger.info(
+                    "[DEV-EMAIL] Email verification OTP queued for %s (Expires in: %dm).",
+                    clean_email,
+                    expires_in_minutes,
+                )
+        except RuntimeError:
+            pass
+
+        return True, None
+
     @classmethod
     def get_last_email(cls, recipient_email: Optional[str] = None) -> Optional[Dict[str, any]]:
         """Retrieve the last captured email, optionally filtered by recipient."""
@@ -96,13 +147,27 @@ class DevelopmentEmailProvider(EmailProvider):
         return cls._sent_emails[-1]
 
     @classmethod
+    def get_last_email_otp(cls, recipient_email: Optional[str] = None) -> Optional[str]:
+        """Extract the OTP code from the last dispatched email verification."""
+        if not cls._sent_emails:
+            return None
+        clean = recipient_email.strip().lower() if recipient_email else None
+        for item in reversed(cls._sent_emails):
+            if item.get("type") == "EMAIL_VERIFICATION":
+                if not clean or item["recipient_email"] == clean:
+                    return item.get("otp_code")
+        return None
+
+    @classmethod
     def get_last_token(cls, recipient_email: Optional[str] = None) -> Optional[str]:
-        """Extract the raw token from the last dispatched email's reset_url."""
+        """Extract the raw token from the last dispatched email's verification_url or reset_url."""
         import urllib.parse
         last_email = cls.get_last_email(recipient_email)
-        if not last_email or not last_email.get("reset_url"):
+        if not last_email:
             return None
-        url = last_email["reset_url"]
+        url = last_email.get("verification_url") or last_email.get("reset_url")
+        if not url:
+            return None
         parsed = urllib.parse.urlparse(url)
         params = urllib.parse.parse_qs(parsed.query)
         token_list = params.get("token")
@@ -285,6 +350,97 @@ class SmtpEmailProvider(EmailProvider):
                 current_app.logger.error(err_msg)
             return False, err_msg
 
+    def send_email_verification_otp(
+        self,
+        recipient_email: str,
+        otp_code: str,
+        recipient_name: Optional[str] = None,
+        verification_url: Optional[str] = None,
+        expires_in_minutes: int = 5,
+    ) -> Tuple[bool, Optional[str]]:
+        if not self.host:
+            return False, "SMTP host is not configured."
+
+        clean_recipient = str(recipient_email).strip().lower()
+        display_name = (recipient_name or "FraudShield User").strip()
+        clean_otp = str(otp_code).strip()
+
+        subject = "FraudShield AI — Verify Your Email Address"
+        formatted_otp = f"{clean_otp[:3]} {clean_otp[3:]}" if len(clean_otp) == 6 else clean_otp
+
+        button_html = ""
+        button_text = ""
+        if verification_url:
+            button_text = f"\nOr verify directly via link:\n{verification_url}\n"
+            button_html = f"""
+    <div style="text-align: center; margin: 20px 0 10px 0;">
+      <p style="font-size: 14px; color: #9ca3af; margin-bottom: 10px;">Alternatively, verify your email with one click:</p>
+      <a href="{verification_url}" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px; display: inline-block;">Verify Email Address</a>
+    </div>"""
+
+        text_body = (
+            f"Hello {display_name},\n\n"
+            f"Thank you for registering with FraudShield AI.\n\n"
+            f"Your 6-Digit Email Verification Code is:\n"
+            f"{clean_otp}\n\n"
+            f"This code will expire in {expires_in_minutes} minutes.\n"
+            f"{button_text}\n"
+            f"If you did not initiate this registration, please disregard this message.\n\n"
+            f"FraudShield AI Security Team"
+        )
+
+        html_body = f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #0b0f19; color: #e2e8f0; padding: 24px; margin: 0;">
+  <div style="max-width: 580px; margin: 0 auto; background: #111827; border-radius: 12px; padding: 36px; border: 1px solid #1f2937; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);">
+    <div style="display: flex; align-items: center; margin-bottom: 24px;">
+      <h2 style="color: #38bdf8; margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.5px;">🛡️ FraudShield AI</h2>
+    </div>
+    <p style="font-size: 16px; line-height: 1.6; color: #f3f4f6; margin-bottom: 12px;">Hello <strong>{display_name}</strong>,</p>
+    <p style="font-size: 15px; line-height: 1.6; color: #9ca3af; margin-bottom: 24px;">
+      Thank you for creating an account with FraudShield AI. Please enter the verification code below in your registration portal to verify ownership of this email address:
+    </p>
+    <div style="text-align: center; margin: 28px 0; background: #0f172a; padding: 24px; border-radius: 10px; border: 1px solid #1e293b;">
+      <div style="font-size: 13px; text-transform: uppercase; letter-spacing: 1.5px; color: #94a3b8; margin-bottom: 8px; font-weight: 600;">Verification Code</div>
+      <div style="font-size: 36px; font-weight: 800; letter-spacing: 10px; color: #38bdf8; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;">{formatted_otp}</div>
+      <div style="font-size: 13px; color: #f59e0b; margin-top: 10px;">⏱️ Expires in {expires_in_minutes} minutes</div>
+    </div>
+    {button_html}
+    <p style="font-size: 13px; line-height: 1.5; color: #6b7280; border-top: 1px solid #1f2937; padding-top: 20px; margin-top: 28px;">
+      If you did not attempt to create a FraudShield AI account, you can safely ignore this email.
+    </p>
+  </div>
+</body>
+</html>"""
+
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = f"{self.from_name} <{self.from_email}>" if self.from_name else self.from_email
+        msg["To"] = clean_recipient
+        msg.attach(MIMEText(text_body, "plain"))
+        msg.attach(MIMEText(html_body, "html"))
+
+        try:
+            if self.use_ssl:
+                with smtplib.SMTP_SSL(self.host, self.port, timeout=10) as server:
+                    if self.username and self.password:
+                        server.login(self.username, self.password)
+                    server.sendmail(self.from_email, [clean_recipient], msg.as_string())
+            else:
+                with smtplib.SMTP(self.host, self.port, timeout=10) as server:
+                    if self.use_tls:
+                        server.starttls()
+                    if self.username and self.password:
+                        server.login(self.username, self.password)
+                    server.sendmail(self.from_email, [clean_recipient], msg.as_string())
+            return True, None
+        except Exception as exc:
+            err_msg = f"SMTP dispatch failure: {str(exc)}"
+            if current_app:
+                current_app.logger.error(err_msg)
+            return False, err_msg
+
 
 class NullEmailProvider(EmailProvider):
     """Fallback provider when no valid email provider credentials are configured in production."""
@@ -296,9 +452,22 @@ class NullEmailProvider(EmailProvider):
         expires_at: Optional[datetime] = None,
         recipient_name: Optional[str] = None,
     ) -> Tuple[bool, Optional[str]]:
-        msg = "Email delivery is not configured. Please contact system administrator."
+        msg = "Email delivery is not configured. Please configure SMTP credentials."
         if current_app:
             current_app.logger.warning("[NullEmailProvider] Attempted to send reset email with no provider configured.")
+        return False, msg
+
+    def send_email_verification_otp(
+        self,
+        recipient_email: str,
+        otp_code: str,
+        recipient_name: Optional[str] = None,
+        verification_url: Optional[str] = None,
+        expires_in_minutes: int = 5,
+    ) -> Tuple[bool, Optional[str]]:
+        msg = "Email delivery is not configured. Please configure SMTP credentials."
+        if current_app:
+            current_app.logger.warning("[NullEmailProvider] Attempted to send email verification OTP with no provider configured.")
         return False, msg
 
 

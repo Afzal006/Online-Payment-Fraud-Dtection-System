@@ -71,6 +71,10 @@ def soc_setup(app):
             name="SOC Lead Analyst",
             email="lead.analyst@fraudshield.internal",
             role="ADMIN",
+            is_email_verified=True,
+            is_phone_verified=True,
+            is_active=True,
+            account_status="ACTIVE",
         )
         admin1.set_password("AdminSecurePass123!")
         db.session.add(admin1)
@@ -80,6 +84,10 @@ def soc_setup(app):
             name="Junior Investigator",
             email="junior.analyst@fraudshield.internal",
             role="ADMIN",
+            is_email_verified=True,
+            is_phone_verified=True,
+            is_active=True,
+            account_status="ACTIVE",
         )
         admin2.set_password("AdminSecurePass123!")
         db.session.add(admin2)
@@ -90,6 +98,10 @@ def soc_setup(app):
             email="vikram.seth@example.com",
             role="USER",
             account_balance=500000.0,
+            is_email_verified=True,
+            is_phone_verified=True,
+            is_active=True,
+            account_status="ACTIVE",
         )
         customer.set_password("CustomerPass123!")
         db.session.add(customer)

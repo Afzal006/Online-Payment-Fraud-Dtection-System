@@ -34,12 +34,16 @@ def client(app):
 @pytest.fixture
 def user_auth_token(client):
     """Register and login regular user, returning JWT."""
+    from app.providers.email_provider import DevelopmentEmailProvider
     client.post("/api/auth/register", json={
         "name": "Regular User",
         "email": "user_soc@example.com",
         "password": "Password123!",
         "role": "USER",
     })
+    otp = DevelopmentEmailProvider.get_last_email_otp("user_soc@example.com")
+    if otp:
+        client.post("/api/auth/verify-email-otp", json={"email": "user_soc@example.com", "otp_code": otp})
     res = client.post("/api/auth/login", json={
         "email": "user_soc@example.com",
         "password": "Password123!",
@@ -50,12 +54,16 @@ def user_auth_token(client):
 @pytest.fixture
 def admin_auth_token(client):
     """Register and login administrator, returning JWT."""
+    from app.providers.email_provider import DevelopmentEmailProvider
     client.post("/api/auth/register", json={
         "name": "SOC Lead",
         "email": "admin_soc@example.com",
         "password": "AdminPassword123!",
         "role": "ADMIN",
     })
+    otp = DevelopmentEmailProvider.get_last_email_otp("admin_soc@example.com")
+    if otp:
+        client.post("/api/auth/verify-email-otp", json={"email": "admin_soc@example.com", "otp_code": otp})
     res = client.post("/api/auth/login", json={
         "email": "admin_soc@example.com",
         "password": "AdminPassword123!",
@@ -287,9 +295,9 @@ def test_admin_customers_api_lifecycle(client, admin_auth_token, app):
     """Verify admin can list all registered customers and view detailed customer profile."""
     # 1. Create multiple customers and transactions
     with app.app_context():
-        c1 = User(name="Priya Patel", email="priya@example.com", role="USER")
+        c1 = User(name="Priya Patel", email="priya@example.com", role="USER", is_email_verified=True, is_phone_verified=True, is_active=True, account_status="ACTIVE")
         c1.set_password("UserPass2026!")
-        c2 = User(name="Vikram Malhotra", email="vikram@example.com", role="USER")
+        c2 = User(name="Vikram Malhotra", email="vikram@example.com", role="USER", is_email_verified=True, is_phone_verified=True, is_active=True, account_status="ACTIVE")
         c2.set_password("UserPass2026!")
         db.session.add_all([c1, c2])
         db.session.flush()

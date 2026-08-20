@@ -27,6 +27,19 @@ def health_check():
     except Exception as e:
         ml_status = f"unavailable: {str(e)}"
 
+    email_provider_status = "not_configured"
+    try:
+        from app.providers.email_provider import get_email_provider, SmtpEmailProvider, DevelopmentEmailProvider
+        provider = get_email_provider()
+        if isinstance(provider, SmtpEmailProvider):
+            email_provider_status = "smtp_configured"
+        elif isinstance(provider, DevelopmentEmailProvider):
+            email_provider_status = "development"
+        else:
+            email_provider_status = "not_configured"
+    except Exception:
+        email_provider_status = "unknown"
+
     return jsonify({
         "status": "healthy" if "unhealthy" not in db_status else "degraded",
         "project": "AI-Powered Real-Time Online Payment Fraud Detection System",
@@ -34,6 +47,7 @@ def health_check():
         "model_version": model_version,
         "database": db_status,
         "ml_engine": ml_status,
+        "email_provider": email_provider_status,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "environment": current_app.config.get("FLASK_ENV", "development"),
     }), 200

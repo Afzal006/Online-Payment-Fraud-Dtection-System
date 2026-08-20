@@ -119,6 +119,30 @@ def init_database(app=None, config_name: str = "development") -> bool:
                 if "pin_reset_window_start" not in user_cols:
                     print("[*] Migrating users schema: adding column 'pin_reset_window_start'...")
                     conn.execute(db.text("ALTER TABLE users ADD COLUMN pin_reset_window_start DATETIME"))
+                if "is_email_verified" not in user_cols:
+                    print("[*] Migrating users schema: adding column 'is_email_verified'...")
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN is_email_verified BOOLEAN DEFAULT 1"))
+                if "email_verified_at" not in user_cols:
+                    print("[*] Migrating users schema: adding column 'email_verified_at'...")
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN email_verified_at DATETIME"))
+                if "email_verification_otp_hash" not in user_cols:
+                    print("[*] Migrating users schema: adding column 'email_verification_otp_hash'...")
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN email_verification_otp_hash VARCHAR(255)"))
+                if "email_verification_otp_expires_at" not in user_cols:
+                    print("[*] Migrating users schema: adding column 'email_verification_otp_expires_at'...")
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN email_verification_otp_expires_at DATETIME"))
+                if "email_verification_otp_attempts" not in user_cols:
+                    print("[*] Migrating users schema: adding column 'email_verification_otp_attempts'...")
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN email_verification_otp_attempts INTEGER DEFAULT 0"))
+                if "email_verification_last_sent_at" not in user_cols:
+                    print("[*] Migrating users schema: adding column 'email_verification_last_sent_at'...")
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN email_verification_last_sent_at DATETIME"))
+                if "email_verification_token_hash" not in user_cols:
+                    print("[*] Migrating users schema: adding column 'email_verification_token_hash'...")
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN email_verification_token_hash VARCHAR(255)"))
+                if "account_status" not in user_cols:
+                    print("[*] Migrating users schema: adding column 'account_status'...")
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN account_status VARCHAR(30) DEFAULT 'ACTIVE'"))
                 conn.commit()
 
         if "transactions" in table_names:

@@ -33,6 +33,16 @@ class User(db.Model):
     is_phone_verified = db.Column(db.Boolean, default=False, nullable=False)
     phone_verified_at = db.Column(db.DateTime, nullable=True)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
+    account_status = db.Column(db.String(30), default="PENDING_VERIFICATION", nullable=False)
+
+    # Real Email Verification OTP Lifecycle (Phase 6)
+    is_email_verified = db.Column(db.Boolean, default=False, nullable=False)
+    email_verified_at = db.Column(db.DateTime, nullable=True)
+    email_verification_otp_hash = db.Column(db.String(255), nullable=True)
+    email_verification_otp_expires_at = db.Column(db.DateTime, nullable=True)
+    email_verification_otp_attempts = db.Column(db.Integer, default=0, nullable=False)
+    email_verification_last_sent_at = db.Column(db.DateTime, nullable=True)
+    email_verification_token_hash = db.Column(db.String(255), nullable=True)
 
     # Real Phone Verification OTP Lifecycle
     phone_otp_hash = db.Column(db.String(255), nullable=True)
@@ -157,13 +167,140 @@ class User(db.Model):
                 return False, "Incorrect OTP. Maximum attempts reached. Please request a new OTP."
             return False, f"Incorrect verification code. {remaining} attempt(s) remaining."
 
+    def set_email_otp(self, otp_code: str, expiry_seconds: int = 300) -> None:
+        """
+        Hash plaintext email verification OTP, set expiry and update dispatch timestamp.
+        """
+        from datetime import timedelta
+        clean_otp = str(otp_code).strip()
+        self.email_verification_otp_hash = generate_password_hash(clean_otp)
+        self.email_verification_otp_expires_at = datetime.now(timezone.utc) + timedelta(seconds=expiry_seconds)
+        self.email_verification_otp_attempts = 0
+        self.email_verification_last_sent_at = datetime.now(timezone.utc)
+
+    def check_email_otp(self, candidate_otp: str) -> tuple:
+        """
+        Verify candidate email OTP against stored hash with expiry and attempt limiting.
+        Returns: (is_valid: bool, error_message: Optional[str])
+        """
+        if not self.email_verification_otp_hash or not self.email_verification_otp_expires_at:
+            return False, "No active email verification OTP found. Please request a new code."
+
+        now = datetime.now(timezone.utc)
+        expires_at = self.email_verification_otp_expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+        if now > expires_at:
+            self.email_verification_otp_hash = None
+            return False, "Email verification code has expired. Please request a new code."
+
+        if self.email_verification_otp_attempts >= 3:
+            self.email_verification_otp_hash = None
+            return False, "Maximum email verification attempts exceeded. Please request a new code."
+
+        clean_candidate = str(candidate_otp).strip()
+        if check_password_hash(self.email_verification_otp_hash, clean_candidate):
+            self.mark_email_verified()
+            return True, None
+        else:
+            self.email_verification_otp_attempts += 1
+            remaining = max(0, 3 - self.email_verification_otp_attempts)
+            if self.email_verification_otp_attempts >= 3:
+                self.email_verification_otp_hash = None
+                return False, "Incorrect verification code. Maximum attempts reached. Please request a new code."
+            return False, f"Incorrect verification code. {remaining} attempt(s) remaining."
+
+    def set_email_verification_token(self, token: str, expiry_seconds: int = 86400) -> None:
+        """Hash and persist direct email verification URL token."""
+        import hashlib
+        from datetime import timedelta
+        clean_token = str(token).strip()
+        self.email_verification_token_hash = hashlib.sha256(clean_token.encode("utf-8")).hexdigest()
+        self.email_verification_otp_expires_at = datetime.now(timezone.utc) + timedelta(seconds=expiry_seconds)
+
+    def check_email_verification_token(self, candidate_token: str) -> tuple:
+        """Verify candidate URL token against stored hash."""
+        import hashlib
+        if not self.email_verification_token_hash:
+            return False, "Invalid or expired verification link."
+
+        now = datetime.now(timezone.utc)
+        if self.email_verification_otp_expires_at:
+            expires_at = self.email_verification_otp_expires_at
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if now > expires_at:
+                self.email_verification_token_hash = None
+                return False, "Verification link has expired. Please request a new verification email."
+
+        clean_candidate = str(candidate_token).strip()
+        candidate_hash = hashlib.sha256(clean_candidate.encode("utf-8")).hexdigest()
+        if candidate_hash == self.email_verification_token_hash:
+            self.mark_email_verified()
+            return True, None
+        return False, "Invalid verification link."
+
+    def mark_email_verified(self) -> None:
+        """Mark email as verified and check if entire account can be activated."""
+        self.is_email_verified = True
+        self.email_verified_at = datetime.now(timezone.utc)
+        self.email_verification_otp_hash = None
+        self.email_verification_otp_expires_at = None
+        self.email_verification_otp_attempts = 0
+        self.email_verification_token_hash = None
+        self.check_and_update_activation()
+
     def mark_phone_verified(self) -> None:
-        """Mark account phone number as verified and clear temporary OTP fields."""
+        """Mark account phone number as verified and check if entire account can be activated."""
         self.is_phone_verified = True
         self.phone_verified_at = datetime.now(timezone.utc)
         self.phone_otp_hash = None
         self.phone_otp_expires_at = None
         self.phone_otp_attempts = 0
+        self.check_and_update_activation()
+
+    def check_and_update_activation(self) -> bool:
+        """
+        Activate account when BOTH email and mobile are verified.
+        Returns True if account is active, False otherwise.
+        """
+        if self.is_email_verified and (self.is_phone_verified or not self.phone_number):
+            self.account_status = "ACTIVE"
+            self.is_active = True
+            return True
+        else:
+            self.account_status = "PENDING_VERIFICATION"
+            return False
+
+    @property
+    def is_fully_verified(self) -> bool:
+        """Check if both email and mobile verifications are complete."""
+        return bool(self.is_email_verified and (self.is_phone_verified or not self.phone_number))
+
+    @property
+    def masked_email(self) -> str:
+        """Return masked email (e.g., a***@gmail.com)."""
+        if not self.email or "@" not in self.email:
+            return self.email or ""
+        parts = self.email.split("@")
+        local = parts[0]
+        domain = parts[1]
+        if len(local) <= 2:
+            masked_local = local[0] + "***"
+        else:
+            masked_local = local[0] + "***" + local[-1]
+        return f"{masked_local}@{domain}"
+
+    @property
+    def masked_phone(self) -> str:
+        """Return masked mobile number (e.g., ******2898)."""
+        if not self.phone_number:
+            return ""
+        digits = "".join(filter(str.isdigit, self.phone_number))
+        if len(digits) >= 10:
+            return "******" + digits[-4:]
+        return "******" + digits[-2:] if len(digits) > 2 else "******"
 
     def set_payment_pin(self, pin: str) -> None:
         """Securely hash and persist 4-6 digit numeric payment PIN."""
@@ -231,19 +368,25 @@ class User(db.Model):
     def to_dict(self, include_private: bool = False) -> dict:
         """
         Convert user instance to JSON-serializable dictionary.
-        Guarantees sensitive fields (password_hash, payment_pin_hash) are strictly excluded.
+        Guarantees sensitive fields (password_hash, payment_pin_hash, OTP hashes) are strictly excluded.
         """
         data = {
             "id": self.id,
             "name": self.name,
             "email": self.email,
+            "masked_email": self.masked_email,
             "role": self.role,
             "phone_number": self.phone_number,
+            "masked_phone": self.masked_phone,
             "customer_account_id": self.customer_account_id,
             "primary_upi_id": self.primary_upi_id,
             "account_balance": float(self.account_balance) if self.account_balance is not None else 0.0,
+            "is_email_verified": bool(self.is_email_verified),
+            "email_verified_at": self.email_verified_at.isoformat() if self.email_verified_at else None,
             "is_phone_verified": bool(self.is_phone_verified),
             "phone_verified_at": self.phone_verified_at.isoformat() if self.phone_verified_at else None,
+            "is_fully_verified": self.is_fully_verified,
+            "account_status": self.account_status or ("ACTIVE" if self.is_active else "PENDING_VERIFICATION"),
             "is_active": bool(self.is_active),
             "is_pin_set": bool(self.is_pin_set),
             "is_pin_locked": self.is_pin_locked,
@@ -254,6 +397,8 @@ class User(db.Model):
         if include_private:
             data["is_admin"] = self.is_admin
             data["pin_failed_attempts"] = self.pin_failed_attempts
+            data["email_verification_otp_attempts"] = self.email_verification_otp_attempts
+            data["phone_otp_attempts"] = self.phone_otp_attempts
         return data
 
     def __repr__(self) -> str:

@@ -23,29 +23,34 @@ class AuthService:
         role: str = "USER",
     ) -> Tuple[Optional[User], Optional[str]]:
         """
-        Register a new user in the database with a hashed password and optional phone OTP challenge.
+        Register a new user account with Email Verification and optional Phone OTP challenge.
+        Account begins in PENDING_VERIFICATION state until both factors are verified.
 
         Returns:
             (User, None) on success
             (None, error_message) on failure
         """
-        import re
-        clean_email = email.strip().lower()
-        clean_name = name.strip()
+        from app.utils.validators import validate_email_syntax_and_domain, validate_phone_number
+        from app.providers.email_provider import get_email_provider
+        from app.providers.sms_provider import get_sms_provider
 
-        # Check for existing email
+        clean_name = name.strip()
+        is_valid_email, clean_email, email_err = validate_email_syntax_and_domain(email)
+        if not is_valid_email:
+            return None, email_err
+
+        # Check for duplicate email
         existing_user = User.query.filter_by(email=clean_email).first()
         if existing_user:
             return None, "Email is already registered"
 
+        # Check and normalize mobile number
         phone_digits = None
         if phone_number and str(phone_number).strip():
-            from app.utils.validators import validate_phone_number
             is_valid_phone, phone_digits, phone_err = validate_phone_number(str(phone_number))
             if not is_valid_phone:
                 return None, phone_err
 
-            # Check if phone number is already registered
             existing_phone = User.query.filter(
                 (User.phone_number == phone_digits) | (User.phone_number == f"+91{phone_digits}")
             ).first()
@@ -59,30 +64,53 @@ class AuthService:
             phone_number=phone_digits,
             role=user_role,
             account_balance=100000.0 if user_role == "USER" else 0.0,
+            is_email_verified=False,
             is_phone_verified=False if phone_digits else True,
-            is_active=True,
+            is_active=False,
+            account_status="PENDING_VERIFICATION",
         )
         user.set_password(password)
 
         db.session.add(user)
         db.session.flush()  # Populates user.id
 
-        # Generate unique Customer Account ID and Primary UPI ID if not set
+        # Generate unique Customer Account ID and Primary UPI ID
         user.customer_account_id = f"FS-{100000 + user.id}" if user_role == "USER" else f"FS-ADMIN-{user.id:02d}"
-        
-        # Primary UPI ID
         email_prefix = clean_email.split("@")[0].replace(".", "_").replace("+", "_")
         user.primary_upi_id = f"{email_prefix}@fraudshield"
 
-        # If mobile number was provided, generate secure OTP and dispatch via SmsProvider
+        # 1. Generate & Dispatch Email Verification OTP and Direct Token
+        raw_email_otp = f"{secrets.randbelow(900000) + 100000}"
+        user.set_email_otp(raw_email_otp, expiry_seconds=300)
+        raw_email_token = secrets.token_urlsafe(32)
+        user.set_email_verification_token(raw_email_token, expiry_seconds=86400)
+
+        base_url = (
+            (current_app.config.get("APP_PUBLIC_URL") if current_app else None)
+            or os.environ.get("APP_PUBLIC_URL")
+            or "http://127.0.0.1:5000"
+        ).rstrip("/")
+        verification_url = f"{base_url}/api/auth/verify-email?token={raw_email_token}"
+
+        email_provider = get_email_provider()
+        email_ok, email_err = email_provider.send_email_verification_otp(
+            recipient_email=user.email,
+            otp_code=raw_email_otp,
+            recipient_name=user.name,
+            verification_url=verification_url,
+            expires_in_minutes=5,
+        )
+        if not email_ok:
+            current_app.logger.warning("Email verification OTP dispatch returned: %s", email_err)
+
+        # 2. If mobile number was provided, generate secure OTP and dispatch via SmsProvider
         if phone_digits:
-            raw_otp = f"{secrets.randbelow(900000) + 100000}"
-            user.set_phone_otp(raw_otp, expiry_seconds=300)
-            from app.providers.sms_provider import get_sms_provider
+            raw_phone_otp = f"{secrets.randbelow(900000) + 100000}"
+            user.set_phone_otp(raw_phone_otp, expiry_seconds=300)
             sms_provider = get_sms_provider()
             sms_ok, sms_err = sms_provider.send_otp(
                 phone_number=f"+91{phone_digits}",
-                otp_code=raw_otp,
+                otp_code=raw_phone_otp,
                 purpose="REGISTRATION"
             )
             if not sms_ok:
@@ -103,11 +131,183 @@ class AuthService:
                 "role": user.role,
                 "customer_account_id": user.customer_account_id,
                 "phone_number": user.phone_number,
+                "is_email_verified": user.is_email_verified,
                 "is_phone_verified": user.is_phone_verified,
+                "account_status": user.account_status,
             },
+        )
+        AuditService.log_event(
+            event_type="EMAIL_VERIFICATION_SENT",
+            actor=user.email,
+            action="POST /api/auth/register",
+            result="SUCCESS" if email_ok else "DISPATCH_FAILED",
+            user_id=user.id,
+            target_resource=f"User:{user.id}",
+            severity="INFO" if email_ok else "WARN",
         )
 
         return user, None
+
+    @staticmethod
+    def verify_email_otp(
+        email: str,
+        otp_code: str,
+    ) -> Tuple[bool, Optional[User], Optional[str]]:
+        """
+        Verify incoming 6-digit OTP against user's stored email verification hash.
+        """
+        if not email or not otp_code:
+            return False, None, "Email address and verification code are required."
+
+        clean_email = email.strip().lower()
+        user = User.query.filter_by(email=clean_email).first()
+        if not user:
+            return False, None, "No account found for this email address."
+
+        if user.is_email_verified:
+            return True, user, "Email address is already verified."
+
+        is_valid, err = user.check_email_otp(otp_code)
+        db.session.commit()
+
+        if not is_valid:
+            AuditService.log_event(
+                event_type="EMAIL_VERIFICATION_FAILED",
+                actor=clean_email,
+                action="POST /api/auth/verify-email-otp",
+                result="FAILURE",
+                user_id=user.id,
+                target_resource=f"User:{user.id}",
+                severity="WARN",
+                details={"reason": err},
+            )
+            return False, user, err or "Invalid or expired verification code."
+
+        AuditService.log_event(
+            event_type="EMAIL_VERIFICATION_COMPLETED",
+            actor=clean_email,
+            action="POST /api/auth/verify-email-otp",
+            result="SUCCESS",
+            user_id=user.id,
+            target_resource=f"User:{user.id}",
+            severity="INFO",
+            details={
+                "is_email_verified": True,
+                "is_fully_verified": user.is_fully_verified,
+                "account_status": user.account_status,
+            },
+        )
+        return True, user, None
+
+    @staticmethod
+    def resend_email_verification(
+        email: str,
+    ) -> Tuple[bool, Optional[str], Optional[str]]:
+        """
+        Rate-limited resend of email verification code with 60-second cooldown.
+        """
+        if not email:
+            return False, None, "Email address is required."
+
+        clean_email = email.strip().lower()
+        user = User.query.filter_by(email=clean_email).first()
+        if not user:
+            # Anti-enumeration
+            return True, None, None
+
+        if user.is_email_verified:
+            return False, None, "Email address is already verified."
+
+        now = datetime.now(timezone.utc)
+        if user.email_verification_last_sent_at:
+            last_sent = user.email_verification_last_sent_at
+            if last_sent.tzinfo is None:
+                last_sent = last_sent.replace(tzinfo=timezone.utc)
+            elapsed = (now - last_sent).total_seconds()
+            if elapsed < 60:
+                remaining_sec = int(60 - elapsed)
+                return False, None, f"Please wait {remaining_sec} second(s) before requesting another verification email."
+
+        raw_otp = f"{secrets.randbelow(900000) + 100000}"
+        user.set_email_otp(raw_otp, expiry_seconds=300)
+        raw_token = secrets.token_urlsafe(32)
+        user.set_email_verification_token(raw_token, expiry_seconds=86400)
+
+        from app.providers.email_provider import get_email_provider
+        email_provider = get_email_provider()
+
+        base_url = (
+            (current_app.config.get("APP_PUBLIC_URL") if current_app else None)
+            or os.environ.get("APP_PUBLIC_URL")
+            or "http://127.0.0.1:5000"
+        ).rstrip("/")
+        verification_url = f"{base_url}/api/auth/verify-email?token={raw_token}"
+
+        email_ok, email_err = email_provider.send_email_verification_otp(
+            recipient_email=user.email,
+            otp_code=raw_otp,
+            recipient_name=user.name,
+            verification_url=verification_url,
+            expires_in_minutes=5,
+        )
+        db.session.commit()
+
+        if not email_ok:
+            AuditService.log_event(
+                event_type="EMAIL_DELIVERY_FAILED",
+                actor=user.email,
+                action="POST /api/auth/resend-email-verification",
+                result="FAILURE",
+                user_id=user.id,
+                target_resource=f"User:{user.id}",
+                severity="WARN",
+                details={"reason": email_err},
+            )
+            return False, None, email_err or "Failed to deliver email verification code."
+
+        AuditService.log_event(
+            event_type="EMAIL_VERIFICATION_RESEND",
+            actor=user.email,
+            action="POST /api/auth/resend-email-verification",
+            result="SUCCESS",
+            user_id=user.id,
+            target_resource=f"User:{user.id}",
+            severity="INFO",
+        )
+
+        return True, None, None
+
+    @staticmethod
+    def verify_email_token(token: str) -> Tuple[bool, Optional[User], Optional[str]]:
+        """
+        Verify direct email verification URL token.
+        """
+        if not token:
+            return False, None, "Verification token is required."
+
+        import hashlib
+        token_hash = hashlib.sha256(token.strip().encode("utf-8")).hexdigest()
+        user = User.query.filter_by(email_verification_token_hash=token_hash).first()
+        if not user:
+            return False, None, "Invalid or expired verification link."
+
+        is_valid, err = user.check_email_verification_token(token)
+        db.session.commit()
+
+        if not is_valid:
+            return False, user, err or "Invalid or expired verification link."
+
+        AuditService.log_event(
+            event_type="EMAIL_VERIFICATION_COMPLETED",
+            actor=user.email,
+            action="GET /api/auth/verify-email",
+            result="SUCCESS",
+            user_id=user.id,
+            target_resource=f"User:{user.id}",
+            severity="INFO",
+            details={"method": "LINK_TOKEN"},
+        )
+        return True, user, None
 
     @staticmethod
     def verify_phone_otp(
@@ -139,7 +339,7 @@ class AuthService:
             ).first()
 
         if not user:
-            return False, None, "Account not found for the provided identifier."
+            return False, None, "No account found matching this identifier."
 
         if user.is_phone_verified:
             return True, user, "Mobile number is already verified."
@@ -149,19 +349,19 @@ class AuthService:
 
         if not is_valid:
             AuditService.log_event(
-                event_type="PHONE_VERIFICATION_FAILED",
+                event_type="PHONE_OTP_FAILED",
                 actor=user.email,
                 action="POST /api/auth/verify-phone-otp",
                 result="FAILURE",
                 user_id=user.id,
                 target_resource=f"User:{user.id}",
                 severity="WARN",
-                details={"reason": err, "attempts": user.phone_otp_attempts},
+                details={"reason": err},
             )
-            return False, user, err
+            return False, user, err or "Invalid or expired verification code."
 
         AuditService.log_event(
-            event_type="PHONE_VERIFIED",
+            event_type="PHONE_OTP_VERIFIED",
             actor=user.email,
             action="POST /api/auth/verify-phone-otp",
             result="SUCCESS",
@@ -170,9 +370,12 @@ class AuthService:
             severity="INFO",
             details={
                 "phone_number": user.phone_number,
-                "verified_at": user.phone_verified_at.isoformat() if user.phone_verified_at else None
+                "is_phone_verified": True,
+                "is_fully_verified": user.is_fully_verified,
+                "account_status": user.account_status,
             },
         )
+
         return True, user, None
 
     @staticmethod
@@ -325,6 +528,19 @@ class AuthService:
             )
             return None, None, "Invalid email or password"
 
+        # Check email verification state
+        if not user.is_email_verified:
+            AuditService.log_event(
+                event_type="LOGIN_FAILED",
+                actor=clean_email,
+                action="POST /api/auth/login",
+                result="DENIED",
+                user_id=user.id,
+                severity="WARN",
+                details={"reason": "Email address is pending verification"},
+            )
+            return None, user, "Please verify your email address before signing in."
+
         # Check phone verification state
         if not user.is_phone_verified and user.phone_number:
             AuditService.log_event(
@@ -336,7 +552,7 @@ class AuthService:
                 severity="WARN",
                 details={"reason": "Mobile number is pending verification"},
             )
-            return None, None, "Account mobile number is pending verification. Please verify your phone OTP."
+            return None, user, "Please verify your mobile number before signing in."
 
         # Record successful login on device
         if dev_profile:

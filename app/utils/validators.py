@@ -3,11 +3,106 @@ Input Validation Utilities for API Requests.
 """
 
 import re
+import socket
 from typing import Dict, Any, Tuple, Optional
+from flask import current_app
 
 EMAIL_REGEX = re.compile(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
 INDIAN_PHONE_REGEX = re.compile(r"^[6-9]\d{9}$")
 OTP_REGEX = re.compile(r"^\d{6}$")
+
+# Non-routable and RFC reserved test/invalid top-level domains and domains
+RESERVED_INVALID_DOMAINS = {
+    "example.invalid",
+    "invalid",
+    "localhost",
+    "test",
+    "local",
+}
+RESERVED_INVALID_TLDS = {
+    "invalid",
+    "test",
+    "local",
+    "localhost",
+}
+
+
+def validate_email_syntax_and_domain(
+    email_str: Optional[str],
+    check_dns: bool = True,
+) -> Tuple[bool, Optional[str], Optional[str]]:
+    """
+    Validate email address syntax, domain structure, and DNS resolvability.
+
+    Layers:
+    1. Syntax & RFC compliance checks (length, valid characters, consecutive dots).
+    2. Domain formatting & TLD length.
+    3. Rejection of reserved and non-routable top-level domains.
+    4. Optional DNS / MX / A record resolution using socket lookup with strict timeout.
+
+    Returns:
+        (is_valid: bool, normalized_email: Optional[str], error_message: Optional[str])
+    """
+    if not email_str or not isinstance(email_str, str) or not email_str.strip():
+        return False, None, "Email address is required."
+
+    clean_email = email_str.strip().lower()
+
+    if len(clean_email) > 254 or len(clean_email) < 5:
+        return False, None, "Email address length is invalid (must be between 5 and 254 characters)."
+
+    if not EMAIL_REGEX.match(clean_email):
+        return False, None, "Invalid email format. Please provide a standard address (e.g. user@domain.com)."
+
+    parts = clean_email.split("@")
+    if len(parts) != 2:
+        return False, None, "Invalid email address structure."
+
+    local_part, domain = parts[0], parts[1]
+
+    if len(local_part) > 64 or local_part.startswith(".") or local_part.endswith(".") or ".." in local_part:
+        return False, None, "Invalid email local part."
+
+    if domain.startswith("-") or domain.endswith("-") or domain.startswith(".") or domain.endswith(".") or ".." in domain:
+        return False, None, "Invalid email domain structure."
+
+    domain_parts = domain.split(".")
+    if len(domain_parts) < 2:
+        return False, None, "Email domain must include a top-level domain extension (e.g. .com, .org, .in)."
+
+    tld = domain_parts[-1]
+    if len(tld) < 2 or not tld.isalpha():
+        return False, None, "Invalid top-level domain extension in email address."
+
+    if domain in RESERVED_INVALID_DOMAINS or tld in RESERVED_INVALID_TLDS:
+        return False, None, f"Domain '@{domain}' is a reserved or non-routable domain and cannot receive email."
+
+    # DNS Domain Resolvability Check
+    skip_dns = False
+    if current_app:
+        skip_dns = current_app.config.get("DISABLE_EMAIL_DNS_CHECK", False)
+
+    if check_dns and not skip_dns:
+        try:
+            # Set default timeout for domain lookup to avoid hanging
+            original_timeout = socket.getdefaulttimeout()
+            socket.setdefaulttimeout(2.0)
+            try:
+                # Attempt socket resolution for domain
+                socket.gethostbyname(domain)
+            finally:
+                socket.setdefaulttimeout(original_timeout)
+        except (socket.gaierror, socket.herror):
+            return False, None, f"Domain '@{domain}' does not exist or has no valid DNS records."
+        except socket.timeout:
+            # If DNS server timed out, do not hard-block if domain has standard valid structure
+            if current_app:
+                current_app.logger.warning("DNS lookup timed out for domain '%s'; allowing fallback.", domain)
+        except Exception as e:
+            if current_app:
+                current_app.logger.warning("DNS resolution exception for domain '%s': %s", domain, str(e))
+
+    return True, clean_email, None
 
 
 def validate_phone_number(phone_str: Optional[str]) -> Tuple[bool, Optional[str], Optional[str]]:
@@ -52,9 +147,9 @@ def validate_registration_input(data: Optional[Dict[str, Any]]) -> Tuple[bool, O
 
     Requirements:
     - name: string, 2-100 characters
-    - email: valid email format
+    - email: valid email syntax and domain
     - password: minimum 8 characters
-    - phone_number: valid Indian mobile (optional if legacy, validated when present)
+    - phone_number: valid Indian mobile
     - role: 'USER' or 'ADMIN' (optional, defaults to 'USER')
     """
     if not data or not isinstance(data, dict):
@@ -65,8 +160,9 @@ def validate_registration_input(data: Optional[Dict[str, Any]]) -> Tuple[bool, O
         return False, "Name must be between 2 and 100 characters"
 
     email = data.get("email")
-    if not email or not isinstance(email, str) or not EMAIL_REGEX.match(email.strip()):
-        return False, "A valid email address is required"
+    is_valid_email, _, email_err = validate_email_syntax_and_domain(email)
+    if not is_valid_email:
+        return False, email_err
 
     password = data.get("password")
     if not password or not isinstance(password, str) or len(password) < 8:
@@ -81,6 +177,22 @@ def validate_registration_input(data: Optional[Dict[str, Any]]) -> Tuple[bool, O
     role = data.get("role", "USER")
     if role not in ["USER", "ADMIN"]:
         return False, "Role must be either 'USER' or 'ADMIN'"
+
+    return True, None
+
+
+def validate_email_otp_input(data: Optional[Dict[str, Any]]) -> Tuple[bool, Optional[str]]:
+    """Validate email verification OTP submission payload."""
+    if not data or not isinstance(data, dict):
+        return False, "Request body must be a JSON object"
+
+    email = data.get("email")
+    if not email or not isinstance(email, str) or not email.strip():
+        return False, "Email address is required"
+
+    otp_code = data.get("otp_code") or data.get("otp") or data.get("code")
+    if not otp_code or not isinstance(otp_code, str) or not OTP_REGEX.match(str(otp_code).strip()):
+        return False, "Verification OTP code must be exactly 6 numeric digits"
 
     return True, None
 
@@ -102,12 +214,12 @@ def validate_phone_otp_input(data: Optional[Dict[str, Any]]) -> Tuple[bool, Opti
 
 
 def validate_resend_otp_input(data: Optional[Dict[str, Any]]) -> Tuple[bool, Optional[str]]:
-    """Validate phone verification OTP resend request payload."""
+    """Validate phone/email verification OTP resend request payload."""
     if not data or not isinstance(data, dict):
         return False, "Request body must be a JSON object"
 
-    phone = data.get("phone_number") or data.get("phone") or data.get("email")
-    if not phone or not isinstance(phone, str) or not phone.strip():
+    identifier = data.get("phone_number") or data.get("phone") or data.get("email") or data.get("identifier")
+    if not identifier or not isinstance(identifier, str) or not identifier.strip():
         return False, "Phone number or email identifier is required"
 
     return True, None

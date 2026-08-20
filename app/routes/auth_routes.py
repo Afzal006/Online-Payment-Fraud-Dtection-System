@@ -7,7 +7,7 @@ Routes:
 - GET  /api/auth/me       : Retrieve authenticated user profile
 """
 
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, redirect, render_template_string
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.services.auth_service import AuthService
 from app.utils.validators import (
@@ -15,6 +15,7 @@ from app.utils.validators import (
     validate_login_input,
     validate_forgot_password_input,
     validate_reset_password_input,
+    validate_email_otp_input,
     validate_phone_otp_input,
     validate_resend_otp_input,
 )
@@ -24,7 +25,7 @@ auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
 @auth_bp.route("/register", methods=["POST"])
 def register():
-    """Register a new user account with phone OTP challenge."""
+    """Register a new user account with Email and Phone OTP challenges."""
     data = request.get_json(silent=True)
     is_valid, error_msg = validate_registration_input(data)
     if not is_valid:
@@ -43,25 +44,120 @@ def register():
     if error:
         return jsonify({"error": error}), 409
 
-    requires_verification = bool(user.phone_number and not user.is_phone_verified)
-    msg = (
-        "User registered successfully. A 6-digit verification code has been sent to your mobile number."
-        if requires_verification
-        else "User registered successfully"
-    )
+    requires_email_verification = not user.is_email_verified
+    requires_phone_verification = bool(user.phone_number and not user.is_phone_verified)
 
     response_data = {
-        "message": msg,
+        "message": "User registered successfully. Please verify your email and mobile number to activate your account.",
         "user": user.to_dict(),
-        "requires_phone_verification": requires_verification,
+        "requires_email_verification": requires_email_verification,
+        "requires_phone_verification": requires_phone_verification,
+        "account_status": user.account_status,
     }
 
     return jsonify(response_data), 201
 
 
+@auth_bp.route("/verify-email-otp", methods=["POST"])
+def verify_email_otp():
+    """Verify 6-digit email ownership OTP code."""
+    data = request.get_json(silent=True)
+    is_valid, error_msg = validate_email_otp_input(data)
+    if not is_valid:
+        return jsonify({"error": error_msg}), 400
+
+    email = data.get("email")
+    otp_code = data.get("otp_code") or data.get("otp") or data.get("code")
+
+    success, user, error = AuthService.verify_email_otp(
+        email=email,
+        otp_code=otp_code,
+    )
+
+    if not success:
+        return jsonify({"error": error}), 400
+
+    return jsonify({
+        "message": "Email address verified successfully.",
+        "user": user.to_dict() if user else None,
+        "is_email_verified": True,
+        "is_fully_verified": user.is_fully_verified if user else False,
+        "account_status": user.account_status if user else "PENDING_VERIFICATION",
+    }), 200
+
+
+@auth_bp.route("/resend-email-verification", methods=["POST"])
+def resend_email_verification():
+    """Request a fresh 6-digit verification code to recipient email."""
+    data = request.get_json(silent=True)
+    if not data or not isinstance(data, dict):
+        return jsonify({"error": "Request body must be a JSON object"}), 400
+
+    email = data.get("email") or data.get("identifier")
+    if not email or not isinstance(email, str) or not email.strip():
+        return jsonify({"error": "Email address is required"}), 400
+
+    success, _, error = AuthService.resend_email_verification(email=email)
+
+    if error:
+        status_code = 429 if "wait" in error.lower() else 400
+        return jsonify({"error": error}), status_code
+
+    return jsonify({
+        "message": "If an account exists, a new verification code has been dispatched to your email."
+    }), 200
+
+
+@auth_bp.route("/verify-email", methods=["GET"])
+def verify_email_by_token():
+    """Verify email ownership directly via URL token link."""
+    token = request.args.get("token")
+    if not token:
+        return jsonify({"error": "Verification token is required"}), 400
+
+    success, user, error = AuthService.verify_email_token(token)
+
+    # Check if request prefers HTML or JSON
+    wants_json = request.accept_mimetypes.best == "application/json" or request.headers.get("X-Requested-With") == "XMLHttpRequest"
+    if wants_json:
+        if not success:
+            return jsonify({"error": error}), 400
+        return jsonify({
+            "message": "Email address verified successfully.",
+            "user": user.to_dict() if user else None,
+            "is_email_verified": True,
+            "is_fully_verified": user.is_fully_verified if user else False,
+            "account_status": user.account_status if user else "PENDING_VERIFICATION",
+        }), 200
+
+    # HTML response / redirect
+    if success:
+        return redirect("/login?verified=email")
+    else:
+        return render_template_string(
+            """<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Verification Error — FraudShield AI</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body style="background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; font-family: Inter, sans-serif;">
+  <div style="background: #1e293b; padding: 40px; border-radius: 12px; border: 1px solid #334155; text-align: center; max-width: 480px;">
+    <div style="font-size: 48px; margin-bottom: 16px;">⚠️</div>
+    <h2 style="margin: 0 0 12px 0; color: #ef4444;">Verification Link Invalid</h2>
+    <p style="color: #94a3b8; line-height: 1.6; margin-bottom: 24px;">{{ error }}</p>
+    <a href="/login" style="background: #0284c7; color: #fff; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 600;">Return to Login</a>
+  </div>
+</body>
+</html>""",
+            error=error or "This verification link is invalid or has expired.",
+        ), 400
+
+
 @auth_bp.route("/verify-phone-otp", methods=["POST"])
 def verify_phone_otp():
-    """Verify phone verification OTP code and activate account."""
+    """Verify phone verification OTP code and update account state."""
     data = request.get_json(silent=True)
     is_valid, error_msg = validate_phone_otp_input(data)
     if not is_valid:
@@ -79,9 +175,11 @@ def verify_phone_otp():
         return jsonify({"error": error}), 400
 
     return jsonify({
-        "message": "Mobile number verified successfully. You may now sign in to your account.",
+        "message": "Mobile number verified successfully.",
         "user": user.to_dict() if user else None,
         "is_phone_verified": True,
+        "is_fully_verified": user.is_fully_verified if user else False,
+        "account_status": user.account_status if user else "PENDING_VERIFICATION",
     }), 200
 
 
@@ -123,7 +221,17 @@ def login():
     )
 
     if error:
-        return jsonify({"error": error}), 401
+        code = None
+        if "verify your email address" in error.lower():
+            code = "EMAIL_NOT_VERIFIED"
+        elif "verify your mobile number" in error.lower():
+            code = "PHONE_NOT_VERIFIED"
+        resp = {"error": error}
+        if code:
+            resp["code"] = code
+            if user:
+                resp["user"] = user.to_dict()
+        return jsonify(resp), 401
 
     redirect_url = "/admin/dashboard" if user.role == "ADMIN" else "/dashboard"
 

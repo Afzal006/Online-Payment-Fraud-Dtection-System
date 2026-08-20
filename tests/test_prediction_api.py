@@ -27,12 +27,16 @@ def client(app):
 @pytest.fixture
 def user_auth_token(client):
     """Register and authenticate standard test user, returning JWT token."""
+    from app.providers.email_provider import DevelopmentEmailProvider
     client.post("/api/auth/register", json={
         "name": "Jane Doe",
         "email": "jane@example.com",
         "password": "Password123!",
         "role": "USER",
     })
+    otp = DevelopmentEmailProvider.get_last_email_otp("jane@example.com")
+    if otp:
+        client.post("/api/auth/verify-email-otp", json={"email": "jane@example.com", "otp_code": otp})
     res = client.post("/api/auth/login", json={
         "email": "jane@example.com",
         "password": "Password123!",

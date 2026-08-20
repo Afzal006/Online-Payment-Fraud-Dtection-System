@@ -67,6 +67,11 @@ def seed_user(app):
             password="OriginalPassword123!",
             role="USER",
         )
+        user.is_email_verified = True
+        user.is_phone_verified = True
+        user.is_active = True
+        user.account_status = "ACTIVE"
+        db.session.commit()
         return {
             "id": user.id,
             "email": user.email,
@@ -85,6 +90,11 @@ def seed_admin(app):
             password="AdminPassword123!",
             role="ADMIN",
         )
+        admin.is_email_verified = True
+        admin.is_phone_verified = True
+        admin.is_active = True
+        admin.account_status = "ACTIVE"
+        db.session.commit()
         return {
             "id": admin.id,
             "email": admin.email,

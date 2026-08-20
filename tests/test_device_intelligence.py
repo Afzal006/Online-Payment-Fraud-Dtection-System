@@ -39,7 +39,10 @@ def test_user(app_instance):
         email="device_user@example.com",
         role="USER",
         account_balance=100000.0,
+        is_email_verified=True,
+        is_phone_verified=True,
         is_active=True,
+        account_status="ACTIVE",
     )
     user.set_password("SecurePassword123!")
     db.session.add(user)
@@ -55,7 +58,10 @@ def second_user(app_instance):
         email="second_user@example.com",
         role="USER",
         account_balance=50000.0,
+        is_email_verified=True,
+        is_phone_verified=True,
         is_active=True,
+        account_status="ACTIVE",
     )
     user.set_password("SecurePassword123!")
     db.session.add(user)
@@ -70,7 +76,10 @@ def admin_user(app_instance):
         name="SOC Admin",
         email="soc_admin@fraudshield.com",
         role="ADMIN",
+        is_email_verified=True,
+        is_phone_verified=True,
         is_active=True,
+        account_status="ACTIVE",
     )
     admin.set_password("AdminSecurePassword123!")
     db.session.add(admin)

@@ -33,12 +33,16 @@ def client(app):
 @pytest.fixture
 def user_token(client):
     """Register and authenticate standard test user."""
+    from app.providers.email_provider import DevelopmentEmailProvider
     client.post("/api/auth/register", json={
         "name": "Arjun Sharma",
         "email": "arjun@example.com",
         "password": "UserPass2026!",
         "role": "USER",
     })
+    otp = DevelopmentEmailProvider.get_last_email_otp("arjun@example.com")
+    if otp:
+        client.post("/api/auth/verify-email-otp", json={"email": "arjun@example.com", "otp_code": otp})
     res = client.post("/api/auth/login", json={
         "email": "arjun@example.com",
         "password": "UserPass2026!",
@@ -49,12 +53,16 @@ def user_token(client):
 @pytest.fixture
 def admin_token(client):
     """Register and authenticate administrator."""
+    from app.providers.email_provider import DevelopmentEmailProvider
     client.post("/api/auth/register", json={
         "name": "SOC Admin Officer",
         "email": "admin@example.com",
         "password": "AdminPass2026!",
         "role": "ADMIN",
     })
+    otp = DevelopmentEmailProvider.get_last_email_otp("admin@example.com")
+    if otp:
+        client.post("/api/auth/verify-email-otp", json={"email": "admin@example.com", "otp_code": otp})
     res = client.post("/api/auth/login", json={
         "email": "admin@example.com",
         "password": "AdminPass2026!",
@@ -469,12 +477,16 @@ def test_admin_resolve_alert_with_notes(client, user_token, admin_token, app):
 
 def test_tenant_isolation_regular_user_cannot_view_others(client, user_token):
     """Verify standard user can only see their own transactions, not another user's."""
+    from app.providers.email_provider import DevelopmentEmailProvider
     client.post("/api/auth/register", json={
         "name": "User Two",
         "email": "user2@example.com",
         "password": "Password123!",
         "role": "USER",
     })
+    otp2 = DevelopmentEmailProvider.get_last_email_otp("user2@example.com")
+    if otp2:
+        client.post("/api/auth/verify-email-otp", json={"email": "user2@example.com", "otp_code": otp2})
     res2 = client.post("/api/auth/login", json={
         "email": "user2@example.com",
         "password": "Password123!",

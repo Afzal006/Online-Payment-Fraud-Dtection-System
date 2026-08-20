@@ -42,7 +42,10 @@ def sample_user(app):
             email="alice@example.com",
             phone_number="9123456780",
             primary_upi_id="alice@fraudshield",
+            is_email_verified=True,
             is_phone_verified=True,
+            is_active=True,
+            account_status="ACTIVE",
         )
         user.set_password("OldPassword2026!")
         db.session.add(user)

@@ -63,6 +63,10 @@ def test_user(app):
             password="OriginalSecretPassword123!",
             role="USER",
         )
+        user.is_email_verified = True
+        user.is_phone_verified = True
+        user.is_active = True
+        user.account_status = "ACTIVE"
         user.set_payment_pin("123456")
         user.account_balance = 50000.0
         db.session.commit()
