@@ -311,6 +311,12 @@ class PaymentService:
 
         return False, None, f"Could not resolve recipient '{clean_query}'. Please verify the UPI ID or 10-digit mobile number."
 
+    WEAK_PINS = {
+        "0000", "1111", "2222", "3333", "4444", "5555", "6666", "7777", "8888", "9999",
+        "1234", "4321", "12345", "54321", "123456", "654321",
+        "000000", "111111", "222222", "333333", "444444", "555555", "666666", "777777", "888888", "999999",
+    }
+
     @classmethod
     def set_user_pin(
         cls,
@@ -347,6 +353,12 @@ class PaymentService:
         if clean_pin != clean_confirm:
             return False, "Payment PIN and Confirm PIN do not match."
 
+        if clean_pin in cls.WEAK_PINS:
+            return False, "This PIN is too common or easily guessable. Please choose a stronger PIN."
+
+        if user.check_password(clean_pin):
+            return False, "Payment PIN cannot be the same as your account login password."
+
         user.set_payment_pin(clean_pin)
         db.session.commit()
 
@@ -359,6 +371,178 @@ class PaymentService:
             target_resource=f"User:{user.id}",
             severity="INFO",
             details={"is_pin_set": True},
+        )
+
+        return True, None
+
+    @classmethod
+    def request_pin_reset_otp(cls, user_id: int) -> Tuple[bool, Optional[str], Optional[str]]:
+        """
+        Rate-limited generation and SMS dispatch of OTP for Payment PIN recovery.
+        
+        Returns:
+            (success: bool, dev_simulated_otp: Optional[str], error_message: Optional[str])
+        """
+        import secrets
+        from datetime import timedelta
+        user = db.session.get(User, user_id)
+        if not user:
+            return False, None, "User not found."
+
+        if not user.phone_number:
+            return False, None, "No registered mobile number associated with this account. Please update profile."
+
+        now = datetime.now(timezone.utc)
+
+        # Rate Limiting: 60-second cooldown between resends
+        if user.pin_reset_otp_last_sent_at:
+            last_sent = user.pin_reset_otp_last_sent_at
+            if last_sent.tzinfo is None:
+                last_sent = last_sent.replace(tzinfo=timezone.utc)
+            if (now - last_sent).total_seconds() < 60:
+                rem = int(60 - (now - last_sent).total_seconds())
+                return False, None, f"Please wait {rem} second(s) before requesting another OTP."
+
+        # Window rate limiting: max 3 requests per 15-minute window
+        window_start = user.pin_reset_window_start
+        if window_start and window_start.tzinfo is None:
+            window_start = window_start.replace(tzinfo=timezone.utc)
+        if not window_start or (now - window_start).total_seconds() > 900:
+            user.pin_reset_window_start = now
+            user.pin_reset_request_count = 1
+        else:
+            if user.pin_reset_request_count >= 3:
+                AuditService.log_event(
+                    event_type="PAYMENT_PIN_RESET_RATE_LIMITED",
+                    actor=user.email,
+                    action="POST /api/auth/payment-pin/forgot/request-otp",
+                    result="RATE_LIMITED",
+                    user_id=user.id,
+                    target_resource=f"User:{user.id}",
+                    severity="WARN",
+                    details={"attempts": user.pin_reset_request_count},
+                )
+                return False, None, "Too many PIN reset attempts. Please try again after 15 minutes."
+            user.pin_reset_request_count += 1
+
+        raw_otp = f"{secrets.randbelow(900000) + 100000}"
+        user.set_pin_reset_otp(raw_otp, expiry_seconds=300)
+
+        from app.providers.sms_provider import get_sms_provider
+        sms_provider = get_sms_provider()
+        target_phone = user.phone_number
+        if not target_phone.startswith("+"):
+            target_phone = f"+91{target_phone}"
+
+        sms_ok, sms_err = sms_provider.send_otp(
+            phone_number=target_phone,
+            otp_code=raw_otp,
+            purpose="PIN_RESET"
+        )
+        db.session.commit()
+
+        AuditService.log_event(
+            event_type="PAYMENT_PIN_RESET_REQUESTED",
+            actor=user.email,
+            action="POST /api/auth/payment-pin/forgot/request-otp",
+            result="SUCCESS",
+            user_id=user.id,
+            target_resource=f"User:{user.id}",
+            severity="INFO",
+            details={"phone": target_phone},
+        )
+
+        if not sms_ok:
+            return False, None, sms_err or "Failed to dispatch SMS verification code."
+
+        AuditService.log_event(
+            event_type="PAYMENT_PIN_RESET_OTP_SENT",
+            actor=user.email,
+            action="POST /api/auth/payment-pin/forgot/request-otp",
+            result="SUCCESS",
+            user_id=user.id,
+            target_resource=f"User:{user.id}",
+            severity="INFO",
+        )
+
+        from flask import current_app
+        dev_otp = raw_otp if (current_app and (current_app.config.get("TESTING") or current_app.config.get("DEBUG"))) else None
+        return True, dev_otp, None
+
+    @classmethod
+    def verify_and_reset_pin(
+        cls,
+        user_id: int,
+        otp_code: str,
+        password: str,
+        new_pin: str,
+        confirm_pin: str,
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Verify SMS OTP and account password, then set new Payment PIN and clear previous lockout state.
+        
+        Returns:
+            (success: bool, error_message: Optional[str])
+        """
+        user = db.session.get(User, user_id)
+        if not user:
+            return False, "User not found."
+
+        if not password:
+            return False, "Account login password is required to verify identity."
+
+        if not user.check_password(password):
+            return False, "Incorrect account login password."
+
+        if not otp_code:
+            return False, "Verification OTP code is required."
+
+        is_otp_valid, otp_err = user.check_pin_reset_otp(otp_code)
+        if not is_otp_valid:
+            db.session.commit()
+            AuditService.log_event(
+                event_type="PAYMENT_PIN_RESET_OTP_FAILED",
+                actor=user.email,
+                action="POST /api/auth/payment-pin/forgot/verify-and-reset",
+                result="FAILURE",
+                user_id=user.id,
+                target_resource=f"User:{user.id}",
+                severity="WARN",
+                details={"reason": otp_err},
+            )
+            return False, otp_err or "Invalid or expired verification OTP code."
+
+        clean_pin = str(new_pin).strip()
+        clean_confirm = str(confirm_pin).strip()
+
+        if not clean_pin:
+            return False, "New Payment PIN cannot be blank."
+
+        if not cls.PIN_REGEX.match(clean_pin):
+            return False, "Payment PIN must be exactly 4 to 6 numeric digits."
+
+        if clean_pin != clean_confirm:
+            return False, "Payment PIN and Confirm PIN do not match."
+
+        if clean_pin in cls.WEAK_PINS:
+            return False, "This PIN is too common or easily guessable. Please choose a stronger PIN."
+
+        if user.check_password(clean_pin):
+            return False, "Payment PIN cannot be the same as your account login password."
+
+        # Invalidate old PIN, hash new PIN, clear failed attempts and lockouts
+        user.set_payment_pin(clean_pin)
+        db.session.commit()
+
+        AuditService.log_event(
+            event_type="PAYMENT_PIN_RESET_COMPLETED",
+            actor=user.email,
+            action="POST /api/auth/payment-pin/forgot/verify-and-reset",
+            result="SUCCESS",
+            user_id=user.id,
+            target_resource=f"User:{user.id}",
+            severity="INFO",
+            details={"is_pin_set": True, "lockout_cleared": True},
         )
 
         return True, None

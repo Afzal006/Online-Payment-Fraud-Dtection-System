@@ -255,3 +255,67 @@ def get_payment_pin_status():
     }), 200
 
 
+@auth_bp.route("/payment-pin/forgot/request-otp", methods=["POST"])
+@jwt_required()
+def request_payment_pin_reset_otp():
+    """
+    Request SMS verification OTP to initiate Payment PIN recovery.
+    """
+    from app.services.payment_service import PaymentService
+    user_id = int(get_jwt_identity())
+
+    success, dev_otp, error = PaymentService.request_pin_reset_otp(user_id=user_id)
+    if not success:
+        status_code = 429 if "Too many" in (error or "") or "wait" in (error or "").lower() else 400
+        return jsonify({"error": error}), status_code
+
+    resp = {
+        "success": True,
+        "message": "Verification OTP sent to your registered mobile number for Payment PIN recovery.",
+    }
+    if dev_otp:
+        resp["dev_simulated_otp"] = dev_otp
+
+    return jsonify(resp), 200
+
+
+@auth_bp.route("/payment-pin/forgot/verify-and-reset", methods=["POST"])
+@jwt_required()
+def verify_and_reset_payment_pin():
+    """
+    Verify SMS OTP + account password, then set new Payment PIN.
+    """
+    from app.services.payment_service import PaymentService
+    user_id = int(get_jwt_identity())
+    data = request.get_json(silent=True)
+    if not data or not isinstance(data, dict):
+        return jsonify({"error": "Request body must be a valid JSON object"}), 400
+
+    otp_code = data.get("otp_code") or data.get("otp") or ""
+    password = data.get("password") or data.get("account_password") or ""
+    new_pin = data.get("new_pin") or data.get("pin") or data.get("payment_pin") or ""
+    confirm_pin = data.get("confirm_pin") or data.get("confirmPin") or data.get("confirm_payment_pin") or ""
+
+    success, error = PaymentService.verify_and_reset_pin(
+        user_id=user_id,
+        otp_code=otp_code,
+        password=password,
+        new_pin=new_pin,
+        confirm_pin=confirm_pin,
+    )
+
+    if not success:
+        status_code = 400
+        if "Incorrect account login password" in (error or ""):
+            status_code = 401
+        elif "Maximum" in (error or "") or "Too many" in (error or ""):
+            status_code = 429
+        return jsonify({"error": error}), status_code
+
+    return jsonify({
+        "success": True,
+        "message": "Payment PIN reset successfully. You can now use your new PIN for payments.",
+        "is_pin_set": True,
+    }), 200
+
+

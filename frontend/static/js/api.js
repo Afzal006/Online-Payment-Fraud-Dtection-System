@@ -209,6 +209,24 @@ class ApiClient {
   async getPaymentPinStatus() {
     return this.request('/api/auth/payment-pin/status', { method: 'GET' });
   }
+
+  async requestPaymentPinResetOtp() {
+    return this.request('/api/auth/payment-pin/forgot/request-otp', {
+      method: 'POST',
+    });
+  }
+
+  async verifyAndResetPaymentPin(otpCode, password, newPin, confirmPin) {
+    return this.request('/api/auth/payment-pin/forgot/verify-and-reset', {
+      method: 'POST',
+      body: JSON.stringify({
+        otp_code: otpCode,
+        password: password,
+        new_pin: newPin,
+        confirm_pin: confirmPin,
+      }),
+    });
+  }
 }
 
 // Global API instance

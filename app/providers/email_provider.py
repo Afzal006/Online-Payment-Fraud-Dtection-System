@@ -28,6 +28,7 @@ class EmailProvider(ABC):
         recipient_email: str,
         reset_url: str,
         expires_at: Optional[datetime] = None,
+        recipient_name: Optional[str] = None,
     ) -> Tuple[bool, Optional[str]]:
         """
         Send a secure password reset email with reset link.
@@ -55,12 +56,14 @@ class DevelopmentEmailProvider(EmailProvider):
         recipient_email: str,
         reset_url: str,
         expires_at: Optional[datetime] = None,
+        recipient_name: Optional[str] = None,
     ) -> Tuple[bool, Optional[str]]:
         clean_email = str(recipient_email).strip().lower()
         expiry_str = expires_at.isoformat() if expires_at else "15 minutes"
 
         record = {
             "recipient_email": clean_email,
+            "recipient_name": recipient_name or "User",
             "reset_url": reset_url,
             "expires_at": expires_at,
             "dispatched_at": datetime.now(timezone.utc),
@@ -116,12 +119,15 @@ class SmtpEmailProvider(EmailProvider):
     Standard SMTP Provider for Production & Staging Environments.
     
     Configured via environment variables:
+    - MAIL_PROVIDER / EMAIL_PROVIDER: 'smtp'
     - SMTP_HOST / SMTP_SERVER
-    - SMTP_PORT (default 587)
-    - SMTP_USER / SMTP_USERNAME
+    - SMTP_PORT (default 587, or 465 for SSL)
+    - SMTP_USERNAME / SMTP_USER
     - SMTP_PASSWORD
     - SMTP_USE_TLS (default True)
-    - EMAIL_FROM / MAIL_DEFAULT_SENDER
+    - SMTP_USE_SSL (default False, True if port 465)
+    - SMTP_FROM_EMAIL / EMAIL_FROM / MAIL_DEFAULT_SENDER
+    - SMTP_FROM_NAME
     """
 
     def __init__(
@@ -130,54 +136,123 @@ class SmtpEmailProvider(EmailProvider):
         port: Optional[int] = None,
         username: Optional[str] = None,
         password: Optional[str] = None,
-        use_tls: bool = True,
+        use_tls: Optional[bool] = None,
+        use_ssl: Optional[bool] = None,
         from_email: Optional[str] = None,
+        from_name: Optional[str] = None,
     ):
-        self.host = host or os.environ.get("SMTP_HOST") or os.environ.get("SMTP_SERVER")
-        self.port = int(port or os.environ.get("SMTP_PORT", 587))
-        self.username = username or os.environ.get("SMTP_USER") or os.environ.get("SMTP_USERNAME")
-        self.password = password or os.environ.get("SMTP_PASSWORD")
-        self.use_tls = use_tls if use_tls is not None else (os.environ.get("SMTP_USE_TLS", "true").lower() == "true")
-        self.from_email = from_email or os.environ.get("EMAIL_FROM") or os.environ.get("MAIL_DEFAULT_SENDER") or "no-reply@fraudshield.ai"
+        self.host = (
+            host
+            or (current_app.config.get("SMTP_HOST") if current_app else None)
+            or os.environ.get("SMTP_HOST")
+            or os.environ.get("SMTP_SERVER")
+        )
+        raw_port = (
+            port
+            or (current_app.config.get("SMTP_PORT") if current_app else None)
+            or os.environ.get("SMTP_PORT")
+            or 587
+        )
+        self.port = int(raw_port)
+        self.username = (
+            username
+            or (current_app.config.get("SMTP_USERNAME") if current_app else None)
+            or os.environ.get("SMTP_USERNAME")
+            or os.environ.get("SMTP_USER")
+        )
+        self.password = (
+            password
+            or (current_app.config.get("SMTP_PASSWORD") if current_app else None)
+            or os.environ.get("SMTP_PASSWORD")
+        )
+        
+        # Determine SSL vs TLS
+        if use_ssl is not None:
+            self.use_ssl = use_ssl
+        elif self.port == 465:
+            self.use_ssl = True
+        elif current_app and current_app.config.get("SMTP_USE_SSL"):
+            self.use_ssl = str(current_app.config.get("SMTP_USE_SSL")).lower() in ("true", "1", "yes")
+        elif os.environ.get("SMTP_USE_SSL"):
+            self.use_ssl = os.environ.get("SMTP_USE_SSL", "false").lower() in ("true", "1", "yes")
+        else:
+            self.use_ssl = False
+
+        if use_tls is not None:
+            self.use_tls = use_tls
+        elif self.use_ssl:
+            self.use_tls = False
+        elif current_app and current_app.config.get("SMTP_USE_TLS") is not None:
+            self.use_tls = str(current_app.config.get("SMTP_USE_TLS")).lower() in ("true", "1", "yes")
+        elif os.environ.get("SMTP_USE_TLS"):
+            self.use_tls = os.environ.get("SMTP_USE_TLS", "true").lower() in ("true", "1", "yes")
+        else:
+            self.use_tls = True
+
+        raw_from = (
+            from_email
+            or (current_app.config.get("SMTP_FROM_EMAIL") if current_app else None)
+            or os.environ.get("SMTP_FROM_EMAIL")
+            or os.environ.get("EMAIL_FROM")
+            or os.environ.get("MAIL_DEFAULT_SENDER")
+            or "security@fraudshield.ai"
+        )
+        self.from_name = (
+            from_name
+            or (current_app.config.get("SMTP_FROM_NAME") if current_app else None)
+            or os.environ.get("SMTP_FROM_NAME")
+            or "FraudShield AI Security"
+        )
+        self.from_email = raw_from
 
     def send_password_reset_email(
         self,
         recipient_email: str,
         reset_url: str,
         expires_at: Optional[datetime] = None,
+        recipient_name: Optional[str] = None,
     ) -> Tuple[bool, Optional[str]]:
         if not self.host:
             return False, "SMTP host is not configured."
 
         clean_recipient = str(recipient_email).strip().lower()
+        display_name = (recipient_name or "FraudShield User").strip()
 
-        subject = "FraudShield AI - Password Reset Request"
-        expiry_info = f"This link will expire at {expires_at.strftime('%H:%M:%S UTC')}." if expires_at else "This link will expire in 15 minutes."
+        subject = "FraudShield AI — Password Reset"
+        expiry_info = f"This link expires in 15 minutes (at {expires_at.strftime('%H:%M UTC')}) and can only be used once." if expires_at else "This link expires in 15 minutes and can only be used once."
 
         text_body = (
-            f"Hello,\n\n"
-            f"We received a request to reset the password for your FraudShield account.\n"
-            f"Please click the link below to set a new password:\n\n"
+            f"Hello {display_name},\n\n"
+            f"We received a request to reset your FraudShield AI password.\n\n"
+            f"Reset Password:\n"
             f"{reset_url}\n\n"
-            f"{expiry_info}\n"
-            f"If you did not request this password reset, please ignore this email or contact security immediately.\n\n"
+            f"{expiry_info}\n\n"
+            f"If you did not request this reset, you can safely ignore this email.\n\n"
             f"FraudShield AI Security Team"
         )
 
         html_body = f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
-<body style="font-family: Arial, sans-serif; background: #0b0f19; color: #e2e8f0; padding: 20px;">
-  <div style="max-width: 600px; margin: 0 auto; background: #1e293b; border-radius: 8px; padding: 30px; border: 1px solid #334155;">
-    <h2 style="color: #38bdf8; margin-top: 0;">FraudShield AI Security</h2>
-    <p>We received a request to reset the password for your account (<strong>{clean_recipient}</strong>).</p>
-    <p>Click the button below to securely set your new password:</p>
-    <div style="text-align: center; margin: 30px 0;">
-      <a href="{reset_url}" style="background: #0284c7; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Reset Password</a>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #0b0f19; color: #e2e8f0; padding: 24px; margin: 0;">
+  <div style="max-width: 580px; margin: 0 auto; background: #111827; border-radius: 12px; padding: 36px; border: 1px solid #1f2937; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);">
+    <div style="display: flex; align-items: center; margin-bottom: 24px;">
+      <h2 style="color: #38bdf8; margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.5px;">🛡️ FraudShield AI</h2>
     </div>
-    <p style="font-size: 0.85em; color: #94a3b8;">{expiry_info}</p>
-    <p style="font-size: 0.8em; color: #64748b; border-top: 1px solid #334155; padding-top: 15px; margin-top: 30px;">
-      If you did not request this password reset, please ignore this message. Your password will remain unchanged.
+    <p style="font-size: 16px; line-height: 1.6; color: #f3f4f6; margin-bottom: 12px;">Hello <strong>{display_name}</strong>,</p>
+    <p style="font-size: 15px; line-height: 1.6; color: #9ca3af; margin-bottom: 24px;">
+      We received a request to reset your FraudShield AI account password. Click the secure button below to choose a new password:
+    </p>
+    <div style="text-align: center; margin: 32px 0;">
+      <a href="{reset_url}" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #ffffff; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px; display: inline-block; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.4);">Reset Password</a>
+    </div>
+    <div style="background: #1f2937; border-radius: 8px; padding: 14px 18px; margin-bottom: 24px;">
+      <p style="font-size: 13px; color: #fbbf24; margin: 0;">
+        ⚠️ <strong>Security Notice:</strong> {expiry_info}
+      </p>
+    </div>
+    <p style="font-size: 13px; line-height: 1.5; color: #6b7280; border-top: 1px solid #1f2937; padding-top: 20px; margin-top: 28px;">
+      If you did not request this password reset, please ignore this message. Your account remains secure and your password will not be changed.
     </p>
   </div>
 </body>
@@ -185,18 +260,24 @@ class SmtpEmailProvider(EmailProvider):
 
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
-        msg["From"] = self.from_email
+        msg["From"] = f"{self.from_name} <{self.from_email}>" if self.from_name else self.from_email
         msg["To"] = clean_recipient
         msg.attach(MIMEText(text_body, "plain"))
         msg.attach(MIMEText(html_body, "html"))
 
         try:
-            with smtplib.SMTP(self.host, self.port, timeout=10) as server:
-                if self.use_tls:
-                    server.starttls()
-                if self.username and self.password:
-                    server.login(self.username, self.password)
-                server.sendmail(self.from_email, [clean_recipient], msg.as_string())
+            if self.use_ssl:
+                with smtplib.SMTP_SSL(self.host, self.port, timeout=10) as server:
+                    if self.username and self.password:
+                        server.login(self.username, self.password)
+                    server.sendmail(self.from_email, [clean_recipient], msg.as_string())
+            else:
+                with smtplib.SMTP(self.host, self.port, timeout=10) as server:
+                    if self.use_tls:
+                        server.starttls()
+                    if self.username and self.password:
+                        server.login(self.username, self.password)
+                    server.sendmail(self.from_email, [clean_recipient], msg.as_string())
             return True, None
         except Exception as exc:
             err_msg = f"SMTP dispatch failure: {str(exc)}"
@@ -213,6 +294,7 @@ class NullEmailProvider(EmailProvider):
         recipient_email: str,
         reset_url: str,
         expires_at: Optional[datetime] = None,
+        recipient_name: Optional[str] = None,
     ) -> Tuple[bool, Optional[str]]:
         msg = "Email delivery is not configured. Please contact system administrator."
         if current_app:
@@ -225,34 +307,51 @@ def get_email_provider() -> EmailProvider:
     Factory resolving active EmailProvider based on runtime configuration.
     
     Order of resolution:
-    1. If app is TESTING or DEBUG (and no explicit override), use DevelopmentEmailProvider.
+    1. Explicit MAIL_PROVIDER / EMAIL_PROVIDER configuration ('smtp', 'development', 'null').
     2. If SMTP_HOST / SMTP_SERVER is defined in env/config, use SmtpEmailProvider.
-    3. If EMAIL_PROVIDER == 'development', use DevelopmentEmailProvider.
+    3. If app is TESTING or DEBUG (and no explicit SMTP defined), use DevelopmentEmailProvider.
     4. Otherwise, use NullEmailProvider (honest failure without simulated success).
     """
+    # 1. Check Flask app config override
     try:
         if current_app:
-            provider_override = current_app.config.get("EMAIL_PROVIDER")
-            if provider_override == "development":
-                return DevelopmentEmailProvider()
-            elif provider_override == "smtp":
-                return SmtpEmailProvider()
-            elif provider_override == "null":
-                return NullEmailProvider()
+            provider_override = (
+                current_app.config.get("MAIL_PROVIDER")
+                or current_app.config.get("EMAIL_PROVIDER")
+            )
+            if provider_override:
+                p = str(provider_override).lower().strip()
+                if p == "development":
+                    return DevelopmentEmailProvider()
+                elif p == "smtp":
+                    return SmtpEmailProvider()
+                elif p == "null":
+                    return NullEmailProvider()
 
-            if current_app.config.get("TESTING") or current_app.config.get("DEBUG"):
-                return DevelopmentEmailProvider()
-
+            # If explicit SMTP_HOST in config, prefer SmtpEmailProvider
             if current_app.config.get("SMTP_HOST") or current_app.config.get("SMTP_SERVER"):
                 return SmtpEmailProvider()
+
+            # If in automated testing, use DevelopmentEmailProvider
+            if current_app.config.get("TESTING"):
+                return DevelopmentEmailProvider()
     except RuntimeError:
         pass
 
-    # Direct environment variable check
-    env_provider = os.environ.get("EMAIL_PROVIDER", "").lower()
+    # 2. Check environment variables
+    env_provider = (
+        os.environ.get("MAIL_PROVIDER", "")
+        or os.environ.get("EMAIL_PROVIDER", "")
+    ).lower().strip()
+
     if env_provider == "development":
         return DevelopmentEmailProvider()
-    if env_provider == "smtp" or os.environ.get("SMTP_HOST") or os.environ.get("SMTP_SERVER"):
+    if env_provider == "smtp":
+        return SmtpEmailProvider()
+    if env_provider == "null":
+        return NullEmailProvider()
+
+    if os.environ.get("SMTP_HOST") or os.environ.get("SMTP_SERVER"):
         return SmtpEmailProvider()
 
     if os.environ.get("FLASK_ENV") in ("testing", "development") or os.environ.get("ENV") == "testing":

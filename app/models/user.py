@@ -47,6 +47,14 @@ class User(db.Model):
     is_pin_set = db.Column(db.Boolean, default=False, nullable=False)
     payment_pin_updated_at = db.Column(db.DateTime, nullable=True)
 
+    # Secure Payment PIN Reset OTP
+    pin_reset_otp_hash = db.Column(db.String(255), nullable=True)
+    pin_reset_otp_expires_at = db.Column(db.DateTime, nullable=True)
+    pin_reset_otp_attempts = db.Column(db.Integer, default=0, nullable=False)
+    pin_reset_otp_last_sent_at = db.Column(db.DateTime, nullable=True)
+    pin_reset_request_count = db.Column(db.Integer, default=0, nullable=False)
+    pin_reset_window_start = db.Column(db.DateTime, nullable=True)
+
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
     password_changed_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
@@ -108,6 +116,47 @@ class User(db.Model):
                 return False, "Incorrect OTP. Maximum attempts reached. Please request a new OTP."
             return False, f"Incorrect verification code. {remaining} attempt(s) remaining."
 
+    def set_pin_reset_otp(self, otp_code: str, expiry_seconds: int = 300) -> None:
+        """Hash plaintext PIN reset OTP, set expiry and update dispatch timestamp."""
+        from datetime import timedelta
+        clean_otp = str(otp_code).strip()
+        self.pin_reset_otp_hash = generate_password_hash(clean_otp)
+        self.pin_reset_otp_expires_at = datetime.now(timezone.utc) + timedelta(seconds=expiry_seconds)
+        self.pin_reset_otp_attempts = 0
+        self.pin_reset_otp_last_sent_at = datetime.now(timezone.utc)
+
+    def check_pin_reset_otp(self, candidate_otp: str) -> tuple:
+        """Verify candidate PIN reset OTP against stored hash with expiry and attempt limiting."""
+        if not self.pin_reset_otp_hash or not self.pin_reset_otp_expires_at:
+            return False, "No active PIN reset OTP found. Please request a new code."
+
+        now = datetime.now(timezone.utc)
+        expires_at = self.pin_reset_otp_expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+        if now > expires_at:
+            self.pin_reset_otp_hash = None
+            return False, "PIN reset OTP has expired. Please request a new code."
+
+        if self.pin_reset_otp_attempts >= 3:
+            self.pin_reset_otp_hash = None
+            return False, "Maximum PIN reset verification attempts exceeded. Please request a new OTP."
+
+        clean_candidate = str(candidate_otp).strip()
+        if check_password_hash(self.pin_reset_otp_hash, clean_candidate):
+            self.pin_reset_otp_hash = None
+            self.pin_reset_otp_expires_at = None
+            self.pin_reset_otp_attempts = 0
+            return True, None
+        else:
+            self.pin_reset_otp_attempts += 1
+            remaining = max(0, 3 - self.pin_reset_otp_attempts)
+            if self.pin_reset_otp_attempts >= 3:
+                self.pin_reset_otp_hash = None
+                return False, "Incorrect OTP. Maximum attempts reached. Please request a new OTP."
+            return False, f"Incorrect verification code. {remaining} attempt(s) remaining."
+
     def mark_phone_verified(self) -> None:
         """Mark account phone number as verified and clear temporary OTP fields."""
         self.is_phone_verified = True
@@ -123,6 +172,10 @@ class User(db.Model):
         self.is_pin_set = True
         self.pin_failed_attempts = 0
         self.pin_locked_until = None
+        self.payment_pin_updated_at = datetime.now(timezone.utc)
+        self.pin_reset_otp_hash = None
+        self.pin_reset_otp_expires_at = None
+        self.pin_reset_otp_attempts = 0
 
     def check_payment_pin(self, pin: str) -> tuple:
         """

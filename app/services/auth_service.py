@@ -1,3 +1,4 @@
+import os
 import secrets
 import hashlib
 from datetime import datetime, timezone, timedelta
@@ -489,11 +490,26 @@ class AuthService:
         # Dispatch reset email via EmailProvider
         from app.providers.email_provider import get_email_provider
         email_provider = get_email_provider()
-        reset_url = f"/reset-password?token={raw_token}"
+
+        # Build absolute reset URL using APP_PUBLIC_URL or request.host_url
+        base_url = (
+            (current_app.config.get("APP_PUBLIC_URL") if current_app else None)
+            or os.environ.get("APP_PUBLIC_URL")
+        )
+        if not base_url:
+            try:
+                from flask import request
+                if request and request.host_url:
+                    base_url = request.host_url.rstrip("/")
+            except Exception:
+                base_url = "http://127.0.0.1:5000"
+
+        reset_url = f"{str(base_url).rstrip('/')}/reset-password?token={raw_token}"
         email_ok, email_err = email_provider.send_password_reset_email(
             recipient_email=user.email,
             reset_url=reset_url,
             expires_at=expires_at,
+            recipient_name=user.name,
         )
 
         if email_ok:

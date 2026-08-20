@@ -342,6 +342,140 @@ async function handlePinSetupSubmit(e) {
   }
 }
 
+// ==========================================
+// Payment PIN Reset Modal Handlers
+// ==========================================
+
+function openPinResetModal() {
+  closePinSetupModal();
+  const modal = document.getElementById('pin-reset-modal-overlay');
+  const errBanner = document.getElementById('pin-reset-error-banner');
+  const succBanner = document.getElementById('pin-reset-success-banner');
+  const step1 = document.getElementById('pin-reset-step-1');
+  const step2 = document.getElementById('pin-reset-step-2');
+  const form2 = document.getElementById('pin-reset-step-2');
+
+  if (errBanner) errBanner.style.display = 'none';
+  if (succBanner) succBanner.style.display = 'none';
+  if (step1) step1.style.display = 'block';
+  if (step2) step2.style.display = 'none';
+  if (form2) form2.reset();
+
+  if (modal) {
+    modal.classList.add('active');
+  }
+}
+
+function closePinResetModal() {
+  const modal = document.getElementById('pin-reset-modal-overlay');
+  if (modal) {
+    modal.classList.remove('active');
+  }
+}
+
+async function handleSendPinResetOtp() {
+  const errBanner = document.getElementById('pin-reset-error-banner');
+  const succBanner = document.getElementById('pin-reset-success-banner');
+  const sendBtn = document.getElementById('btn-send-pin-reset-otp');
+  const step1 = document.getElementById('pin-reset-step-1');
+  const step2 = document.getElementById('pin-reset-step-2');
+
+  if (errBanner) errBanner.style.display = 'none';
+  if (succBanner) succBanner.style.display = 'none';
+
+  if (sendBtn) {
+    sendBtn.disabled = true;
+    sendBtn.innerHTML = '<span>Dispatching OTP...</span>';
+  }
+
+  const res = await window.api.requestPaymentPinResetOtp();
+
+  if (sendBtn) {
+    sendBtn.disabled = false;
+    sendBtn.innerHTML = '<span>📲 Send Verification OTP</span>';
+  }
+
+  if (res && res.ok) {
+    showToast('Verification OTP sent to your registered mobile number!', 'success');
+    if (step1) step1.style.display = 'none';
+    if (step2) step2.style.display = 'block';
+    if (succBanner) {
+      succBanner.textContent = 'OTP sent! Please enter the 6-digit code below to reset your PIN.';
+      succBanner.style.display = 'block';
+    }
+  } else {
+    const errorMsg = (res && res.data && res.data.error) || 'Failed to dispatch verification OTP.';
+    if (errBanner) {
+      errBanner.textContent = errorMsg;
+      errBanner.style.display = 'block';
+    }
+    showToast(errorMsg, 'error');
+  }
+}
+
+async function handlePinResetSubmit(e) {
+  e.preventDefault();
+  const otpCode = document.getElementById('reset-otp-input').value.trim();
+  const password = document.getElementById('reset-account-password').value;
+  const newPin = document.getElementById('reset-new-pin-input').value.trim();
+  const confirmPin = document.getElementById('reset-confirm-pin-input').value.trim();
+  const errBanner = document.getElementById('pin-reset-error-banner');
+  const succBanner = document.getElementById('pin-reset-success-banner');
+  const submitBtn = document.getElementById('btn-submit-pin-reset');
+
+  if (errBanner) errBanner.style.display = 'none';
+  if (succBanner) succBanner.style.display = 'none';
+
+  if (!/^\d{6}$/.test(otpCode)) {
+    if (errBanner) {
+      errBanner.textContent = 'Please enter a valid 6-digit numeric OTP code.';
+      errBanner.style.display = 'block';
+    }
+    return;
+  }
+
+  if (!/^\d{4,6}$/.test(newPin)) {
+    if (errBanner) {
+      errBanner.textContent = 'New Payment PIN must be 4 to 6 numeric digits.';
+      errBanner.style.display = 'block';
+    }
+    return;
+  }
+
+  if (newPin !== confirmPin) {
+    if (errBanner) {
+      errBanner.textContent = 'New Payment PIN and Confirm PIN do not match.';
+      errBanner.style.display = 'block';
+    }
+    return;
+  }
+
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span>Verifying & Resetting PIN...</span>';
+  }
+
+  const res = await window.api.verifyAndResetPaymentPin(otpCode, password, newPin, confirmPin);
+
+  if (submitBtn) {
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = '<span>Reset Payment PIN</span>';
+  }
+
+  if (res && res.ok) {
+    showToast('Payment PIN reset successfully!', 'success');
+    closePinResetModal();
+    await loadCustomerProfile();
+  } else {
+    const errorMsg = (res && res.data && res.data.error) || 'Failed to reset Payment PIN.';
+    if (errBanner) {
+      errBanner.textContent = errorMsg;
+      errBanner.style.display = 'block';
+    }
+    showToast(errorMsg, 'error');
+  }
+}
+
 window.openAddBeneficiaryModal = openAddBeneficiaryModal;
 window.openEditBeneficiaryModal = openEditBeneficiaryModal;
 window.closeBeneficiaryModal = closeBeneficiaryModal;
@@ -350,3 +484,7 @@ window.viewShapForTx = viewShapForTx;
 window.openPinSetupModal = openPinSetupModal;
 window.closePinSetupModal = closePinSetupModal;
 window.handlePinSetupSubmit = handlePinSetupSubmit;
+window.openPinResetModal = openPinResetModal;
+window.closePinResetModal = closePinResetModal;
+window.handleSendPinResetOtp = handleSendPinResetOtp;
+window.handlePinResetSubmit = handlePinResetSubmit;

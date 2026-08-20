@@ -50,11 +50,23 @@ class Config:
     OTP_MAX_ATTEMPTS = int(os.getenv("OTP_MAX_ATTEMPTS", "3"))
 
     # Password Reset Settings (Phase 2.5)
-    PASSWORD_RESET_TOKEN_EXPIRY_MINUTES = int(os.getenv("PASSWORD_RESET_TOKEN_EXPIRY_MINUTES", "10"))
+    PASSWORD_RESET_TOKEN_EXPIRY_MINUTES = int(os.getenv("PASSWORD_RESET_TOKEN_EXPIRY_MINUTES", "15"))
     PASSWORD_RESET_MAX_REQUESTS_PER_WINDOW = int(os.getenv("PASSWORD_RESET_MAX_REQUESTS_PER_WINDOW", "3"))
     PASSWORD_RESET_REQUEST_WINDOW_MINUTES = int(os.getenv("PASSWORD_RESET_REQUEST_WINDOW_MINUTES", "15"))
     PASSWORD_RESET_MAX_ATTEMPTS = int(os.getenv("PASSWORD_RESET_MAX_ATTEMPTS", "5"))
-    PASSWORD_RESET_DEV_MODE = os.getenv("PASSWORD_RESET_DEV_MODE", "true").lower() in ["true", "1", "yes"]
+    PASSWORD_RESET_DEV_MODE = os.getenv("PASSWORD_RESET_DEV_MODE", "false").lower() in ["true", "1", "yes"]
+
+    # Email & SMTP Delivery Configuration (Phase 5)
+    MAIL_PROVIDER = os.getenv("MAIL_PROVIDER", os.getenv("EMAIL_PROVIDER", "development"))
+    SMTP_HOST = os.getenv("SMTP_HOST", os.getenv("SMTP_SERVER", ""))
+    SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+    SMTP_USERNAME = os.getenv("SMTP_USERNAME", os.getenv("SMTP_USER", ""))
+    SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+    SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() in ["true", "1", "yes"]
+    SMTP_USE_SSL = os.getenv("SMTP_USE_SSL", "false").lower() in ["true", "1", "yes"]
+    SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", os.getenv("EMAIL_FROM", "security@fraudshield.ai"))
+    SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "FraudShield AI Security")
+    APP_PUBLIC_URL = os.getenv("APP_PUBLIC_URL", "")
 
 
 class DevelopmentConfig(Config):
