@@ -178,18 +178,20 @@ class PaymentService:
 
         # 1. Search Internal Registered Users
         user_match = None
-        # Clean phone number query if numeric
+        is_phone_query = False
         digits_only = re.sub(r"\D", "", clean_query)
         if len(digits_only) == 10:
+            is_phone_query = True
             user_match = User.query.filter(
                 (User.phone_number == digits_only) | (User.phone_number == f"+91{digits_only}")
             ).first()
         elif len(digits_only) == 12 and digits_only.startswith("91"):
+            is_phone_query = True
             user_match = User.query.filter(
                 (User.phone_number == digits_only[2:]) | (User.phone_number == f"+{digits_only}")
             ).first()
 
-        if not user_match:
+        if not user_match and not is_phone_query:
             user_match = User.query.filter(
                 (User.primary_upi_id == clean_query)
                 | (User.email == clean_query)
@@ -199,6 +201,12 @@ class PaymentService:
         if user_match:
             if user_match.id == current_user_id:
                 return False, None, "Cannot transfer funds to your own account."
+
+            if not user_match.is_active:
+                return False, None, "Recipient account is inactive or restricted."
+
+            if is_phone_query and not user_match.is_phone_verified:
+                return False, None, "User account is registered but pending mobile verification."
 
             # Check if this user is in saved beneficiaries
             beneficiary = Beneficiary.query.filter_by(
@@ -216,6 +224,8 @@ class PaymentService:
                 "recipient_upi_id": user_match.primary_upi_id or f"{user_match.name.lower().replace(' ', '')}@fraudshield",
                 "recipient_phone": user_match.phone_number,
                 "account_type": "INTERNAL_USER",
+                "is_internal": True,
+                "is_verified": bool(user_match.is_phone_verified),
                 "is_saved_beneficiary": bool(beneficiary),
                 "beneficiary_id": beneficiary.id if beneficiary else None,
                 "trust_status": trust_status,
@@ -238,6 +248,8 @@ class PaymentService:
                 "recipient_upi_id": ben_match.beneficiary_upi_id,
                 "recipient_phone": ben_match.beneficiary_phone,
                 "account_type": "SAVED_BENEFICIARY",
+                "is_internal": False,
+                "is_verified": True,
                 "is_saved_beneficiary": True,
                 "beneficiary_id": ben_match.id,
                 "trust_status": ben_match.get_effective_trust_status(),
@@ -246,7 +258,7 @@ class PaymentService:
                 "suggested_note": suggested_note,
             }, None
 
-        # 3. Search Simulated Demo Merchants Registry
+        # 3. Search Known Verified Merchants Registry
         query_lower = clean_query.lower()
         if query_lower in SIMULATED_MERCHANTS:
             merchant_info = SIMULATED_MERCHANTS[query_lower]
@@ -257,6 +269,8 @@ class PaymentService:
                 "recipient_upi_id": query_lower,
                 "recipient_phone": None,
                 "account_type": "MERCHANT",
+                "is_internal": False,
+                "is_verified": True,
                 "is_saved_beneficiary": False,
                 "beneficiary_id": None,
                 "trust_status": "ESTABLISHED",
@@ -265,22 +279,9 @@ class PaymentService:
                 "suggested_note": suggested_note,
             }, None
 
-        # 4. Merchant Code starting with 'M' (e.g. M123456789)
-        if clean_query.upper().startswith("M") and len(clean_query) >= 4:
-            return True, {
-                "resolved": True,
-                "recipient_id": None,
-                "recipient_name": f"Verified Merchant ({clean_query.upper()})",
-                "recipient_upi_id": f"{clean_query.lower()}@upi",
-                "recipient_phone": None,
-                "account_type": "MERCHANT",
-                "is_saved_beneficiary": False,
-                "beneficiary_id": None,
-                "trust_status": "ESTABLISHED",
-                "is_cooling_active": False,
-                "suggested_amount": suggested_amount,
-                "suggested_note": suggested_note,
-            }, None
+        # 4. If query was a phone number and not found, return explicit not found (no fallback)
+        if is_phone_query:
+            return False, None, f"No FraudShield user registered with mobile number +91 {digits_only}."
 
         # 5. Generic Valid UPI ID Format (External / Ad-hoc Payee)
         if cls.UPI_ID_REGEX.match(clean_query):
@@ -292,6 +293,8 @@ class PaymentService:
                 "recipient_upi_id": clean_query,
                 "recipient_phone": None,
                 "account_type": "EXTERNAL_UPI",
+                "is_internal": False,
+                "is_verified": False,
                 "is_saved_beneficiary": False,
                 "beneficiary_id": None,
                 "trust_status": "NEW",

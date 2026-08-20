@@ -127,9 +127,9 @@ class TransactionService:
                     status_code = 429 if user.is_pin_locked else 401
                     return None, pin_err or "Invalid Payment PIN", status_code
                 pin_verified = True
-            elif payment_pin:
-                # User provided a PIN even though not formally set; check if matches or ignore
-                pin_verified = True
+            elif payment_pin is not None:
+                # User provided a PIN but account has not configured one
+                return None, "Payment PIN has not been configured for this account. Please set a Payment PIN first.", 401
 
             # 3. Extract & Sanitize User Inputs
             amount = float(payload["amount"])

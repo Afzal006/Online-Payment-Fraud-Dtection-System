@@ -57,16 +57,26 @@ class ApiClient {
         headers,
       });
 
-      // Handle 401 Unauthorized (Expired or missing token)
+      const data = await response.json().catch(() => ({}));
+
+      // Handle 401 Unauthorized only for actual JWT token expiry / invalidation
       if (response.status === 401) {
-        if (!window.location.pathname.includes('/login') && !window.location.pathname.includes('/register')) {
+        const isJwtFailure = !token || (data && (
+          data.code === 'TOKEN_EXPIRED' ||
+          (typeof data.msg === 'string' && (
+            data.msg.toLowerCase().includes('token') ||
+            data.msg.toLowerCase().includes('authorization header') ||
+            data.msg.toLowerCase().includes('signature')
+          ))
+        ));
+
+        if (isJwtFailure && !window.location.pathname.includes('/login') && !window.location.pathname.includes('/register') && !window.location.pathname.includes('/forgot-password') && !window.location.pathname.includes('/reset-password')) {
           this.clearSession();
           window.location.href = '/login?expired=1';
           return null;
         }
       }
 
-      const data = await response.json().catch(() => ({}));
       return {
         ok: response.ok,
         status: response.status,

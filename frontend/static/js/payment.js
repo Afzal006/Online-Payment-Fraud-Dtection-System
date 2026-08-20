@@ -17,6 +17,9 @@ let isUserPinConfigured = false;
 let pendingPaymentPayload = null;
 let lastPredictionData = null;
 
+let html5QrScannerInstance = null;
+let isCameraScanningActive = false;
+
 document.addEventListener('DOMContentLoaded', async () => {
   if (!window.api.isAuthenticated()) {
     window.location.href = '/login';
@@ -34,9 +37,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if (modeParam && ['qr', 'upi', 'mobile', 'saved'].includes(modeParam)) {
     switchPaymentTab(modeParam);
-  } else {
-    // Set default QR preset on page load for immediate demo
-    loadQrPreset('upi://pay?pa=merchant@fraudshield&pn=SuperMart%20POS&am=1250.00&cu=INR&tn=Groceries');
   }
 
   if (preSelectedBId) {
@@ -113,6 +113,10 @@ async function checkPinStatus() {
 // ==========================================
 
 function switchPaymentTab(tabName) {
+  if (tabName !== 'qr') {
+    stopCameraScanner();
+  }
+
   const tabs = ['qr', 'upi', 'mobile', 'saved'];
   tabs.forEach((t) => {
     const btn = document.getElementById(`tab-${t}`);
@@ -140,8 +144,137 @@ function switchPaymentTab(tabName) {
 }
 
 // ==========================================
-// 3. Recipient Resolution Handlers
+// 3. Real Camera QR Scanner Handlers
 // ==========================================
+
+async function startCameraScanner() {
+  const startBtn = document.getElementById('btn-start-camera');
+  const stopBtn = document.getElementById('btn-stop-camera');
+  const statusEl = document.getElementById('camera-scan-status');
+  const errEl = document.getElementById('camera-error-banner');
+  const placeholderEl = document.getElementById('qr-camera-placeholder');
+
+  if (errEl) errEl.style.display = 'none';
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showCameraError('Camera access is not supported by your browser or environment. Please enter UPI ID manually or upload a QR image.');
+    return;
+  }
+
+  if (typeof Html5Qrcode === 'undefined') {
+    showCameraError('QR Scanner engine is initializing. Please try again in a moment or use manual UPI entry.');
+    return;
+  }
+
+  try {
+    if (statusEl) {
+      statusEl.textContent = 'Requesting camera permissions...';
+      statusEl.style.display = 'block';
+    }
+
+    if (!html5QrScannerInstance) {
+      html5QrScannerInstance = new Html5Qrcode('qr-reader');
+    }
+
+    const config = {
+      fps: 10,
+      qrbox: { width: 250, height: 250 },
+      aspectRatio: 1.0,
+    };
+
+    if (placeholderEl) placeholderEl.style.display = 'none';
+
+    await html5QrScannerInstance.start(
+      { facingMode: 'environment' },
+      config,
+      (decodedText) => {
+        onQrCodeScanned(decodedText);
+      },
+      () => {
+        // Continuous scan loop frame drop (expected while searching for QR)
+      }
+    );
+
+    isCameraScanningActive = true;
+    if (startBtn) startBtn.style.display = 'none';
+    if (stopBtn) stopBtn.style.display = 'inline-flex';
+    if (statusEl) statusEl.textContent = 'Camera active. Point at any standard UPI QR code...';
+  } catch (err) {
+    console.error('Camera startup error:', err);
+    let userMsg = 'Unable to access camera. Please grant camera permission or use manual UPI entry.';
+    if (err && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')) {
+      userMsg = 'Camera permission was denied. Please allow camera access in browser permissions or use manual entry.';
+    } else if (err && err.name === 'NotFoundError') {
+      userMsg = 'No camera device found on this system. Please use manual UPI entry or upload a QR image.';
+    }
+    showCameraError(userMsg);
+    if (placeholderEl) placeholderEl.style.display = 'block';
+  }
+}
+
+async function stopCameraScanner() {
+  const startBtn = document.getElementById('btn-start-camera');
+  const stopBtn = document.getElementById('btn-stop-camera');
+  const statusEl = document.getElementById('camera-scan-status');
+  const placeholderEl = document.getElementById('qr-camera-placeholder');
+
+  if (html5QrScannerInstance && isCameraScanningActive) {
+    try {
+      await html5QrScannerInstance.stop();
+    } catch (e) {
+      console.warn('Camera stop warning:', e);
+    }
+    isCameraScanningActive = false;
+  }
+
+  if (startBtn) startBtn.style.display = 'inline-flex';
+  if (stopBtn) stopBtn.style.display = 'none';
+  if (statusEl) statusEl.style.display = 'none';
+  if (placeholderEl) placeholderEl.style.display = 'block';
+}
+
+function showCameraError(msg) {
+  const errEl = document.getElementById('camera-error-banner');
+  if (errEl) {
+    errEl.textContent = msg;
+    errEl.style.display = 'block';
+  }
+  showToast(msg, 'error');
+}
+
+function onQrCodeScanned(qrPayload) {
+  stopCameraScanner();
+  showToast('UPI QR code detected and decoded!', 'success');
+  resolveAndDisplayRecipient(qrPayload, 'QR_CODE');
+}
+
+async function handleQrFileUpload(e) {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+
+  const errEl = document.getElementById('camera-error-banner');
+  if (errEl) errEl.style.display = 'none';
+
+  if (typeof Html5Qrcode === 'undefined') {
+    showCameraError('QR Scanner library not ready. Please try again.');
+    return;
+  }
+
+  try {
+    if (!html5QrScannerInstance) {
+      html5QrScannerInstance = new Html5Qrcode('qr-reader');
+    }
+    const decodedText = await html5QrScannerInstance.scanFile(file, true);
+    if (decodedText) {
+      showToast('QR Image decoded successfully!', 'success');
+      resolveAndDisplayRecipient(decodedText, 'QR_CODE');
+    }
+  } catch (err) {
+    showCameraError('Could not decode a valid UPI QR code from the uploaded image. Please ensure the QR is clear and well-lit.');
+  } finally {
+    e.target.value = '';
+  }
+}
 
 async function handleScanQrSubmit() {
   const qrInput = document.getElementById('qr-input-text');
@@ -478,7 +611,9 @@ async function executeFinalPayment() {
 function openPinSetupModal() {
   const modal = document.getElementById('pin-setup-modal-overlay');
   const errBanner = document.getElementById('pin-setup-error-banner');
+  const form = document.getElementById('pin-setup-form');
   if (errBanner) errBanner.style.display = 'none';
+  if (form) form.reset();
   if (modal) modal.style.display = 'flex';
 }
 
@@ -490,14 +625,22 @@ function closePinSetupModal() {
 async function handlePinSetupSubmit(e) {
   e.preventDefault();
   const password = document.getElementById('pin-account-password').value;
-  const pin = document.getElementById('new-pin-input').value;
-  const confirmPin = document.getElementById('confirm-pin-input').value;
+  const pin = document.getElementById('new-pin-input').value.trim();
+  const confirmPin = document.getElementById('confirm-pin-input').value.trim();
   const errBanner = document.getElementById('pin-setup-error-banner');
   const submitBtn = document.getElementById('btn-save-pin');
 
+  if (!/^\d{4,6}$/.test(pin)) {
+    if (errBanner) {
+      errBanner.textContent = 'Payment PIN must be exactly 4 to 6 numeric digits (0-9).';
+      errBanner.style.display = 'block';
+    }
+    return;
+  }
+
   if (pin !== confirmPin) {
     if (errBanner) {
-      errBanner.textContent = 'PIN and Confirm PIN do not match.';
+      errBanner.textContent = 'Payment PIN and Confirm PIN do not match.';
       errBanner.style.display = 'block';
     }
     return;
@@ -524,6 +667,7 @@ async function handlePinSetupSubmit(e) {
       errBanner.textContent = errorMsg;
       errBanner.style.display = 'block';
     }
+    showToast(errorMsg, 'error');
   }
 }
 
@@ -697,6 +841,9 @@ async function triggerOtpChallenge(txId) {
 
 // Global exposes
 window.switchPaymentTab = switchPaymentTab;
+window.startCameraScanner = startCameraScanner;
+window.stopCameraScanner = stopCameraScanner;
+window.handleQrFileUpload = handleQrFileUpload;
 window.handleScanQrSubmit = handleScanQrSubmit;
 window.loadQrPreset = loadQrPreset;
 window.handleResolveUpiSubmit = handleResolveUpiSubmit;

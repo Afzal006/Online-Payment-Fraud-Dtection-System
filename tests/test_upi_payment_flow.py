@@ -40,6 +40,7 @@ def upi_users(client):
         account_balance=50000.0,
         role="USER",
         is_active=True,
+        is_phone_verified=True,
     )
     sender.set_password("SecurePass123!")
     sender.set_payment_pin("123456")
@@ -53,6 +54,7 @@ def upi_users(client):
         account_balance=10000.0,
         role="USER",
         is_active=True,
+        is_phone_verified=True,
     )
     recipient.set_password("SecurePass123!")
     recipient.set_payment_pin("654321")
@@ -66,6 +68,7 @@ def upi_users(client):
         account_balance=25000.0,
         role="USER",
         is_active=True,
+        is_phone_verified=True,
     )
     no_pin_user.set_password("SecurePass123!")
 

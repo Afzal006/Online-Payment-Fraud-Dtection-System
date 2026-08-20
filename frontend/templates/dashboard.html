@@ -14,7 +14,10 @@
     </p>
   </div>
 
-  <div style="display: flex; gap: 0.75rem;">
+  <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+    <button type="button" class="btn-secondary-custom" style="padding: 0.6rem 1.1rem;" onclick="openPinSetupModal()">
+      <span>🔑 Set Payment PIN</span>
+    </button>
     <button type="button" class="btn-secondary-custom" style="padding: 0.6rem 1.1rem;" onclick="openAddBeneficiaryModal()">
       <span>+ Add Beneficiary</span>
     </button>
@@ -28,8 +31,10 @@
 <div class="glass-card" style="margin-bottom: 2rem; border-left: 4px solid var(--primary); background: linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.8) 100%);">
   <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1.5rem;">
     <div>
-      <div style="font-size: 0.75rem; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.35rem;">
-        🛡️ Internal Payment Identity & Account
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.35rem;">
+        <div style="font-size: 0.75rem; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.08em;">
+          🛡️ Internal Payment Identity & Account
+        </div>
       </div>
       <h2 id="prof-name" style="font-size: 1.4rem; color: #fff; margin-bottom: 0.5rem;">Loading profile...</h2>
       
@@ -46,6 +51,12 @@
           <span style="color: var(--text-dim);">Phone:</span>
           <span id="prof-phone" style="font-weight: 600; color: #fff;">+91 98765 43210</span>
           <span id="prof-phone-badge" class="badge-risk badge-risk-low" style="font-size: 0.65rem; padding: 0.15rem 0.45rem; margin-left: 0.25rem;">✓ Verified</span>
+        </div>
+        <div>
+          <span style="color: var(--text-dim);">Payment PIN:</span>
+          <span id="prof-pin-status" style="font-weight: 600; color: #fff;">Checking...</span>
+          <span id="prof-pin-badge" class="badge-risk badge-risk-low" style="font-size: 0.65rem; padding: 0.15rem 0.45rem; margin-left: 0.25rem;">✓ Active</span>
+          <button type="button" id="btn-manage-pin" class="btn-secondary-custom" style="padding: 0.15rem 0.45rem; font-size: 0.7rem; margin-left: 0.4rem;" onclick="openPinSetupModal()">Change</button>
         </div>
       </div>
     </div>
@@ -218,6 +229,48 @@
         <button type="button" class="btn-secondary-custom" onclick="closeBeneficiaryModal()">Cancel</button>
         <button type="submit" id="btn-save-beneficiary" class="btn-primary-custom">Save Beneficiary</button>
       </div>
+    </form>
+  </div>
+</div>
+
+<!-- Payment PIN Setup Modal Overlay -->
+<div id="pin-setup-modal-overlay" class="modal-overlay" style="display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(8px); z-index: 1000; align-items: center; justify-content: center; padding: 1rem;">
+  <div class="glass-card" style="max-width: 440px; width: 100%; padding: 2rem; position: relative; background: #0F172A; border: 1px solid rgba(255, 255, 255, 0.15);">
+    <button type="button" onclick="closePinSetupModal()" style="position: absolute; top: 1rem; right: 1rem; background: none; border: none; color: var(--text-muted); font-size: 1.25rem; cursor: pointer;">&times;</button>
+    
+    <div style="text-align: center; margin-bottom: 1.5rem;">
+      <div style="width: 52px; height: 52px; border-radius: 50%; background: rgba(52, 211, 153, 0.15); display: flex; align-items: center; justify-content: center; font-size: 1.5rem; margin: 0 auto 0.75rem;">
+        🛡️
+      </div>
+      <h3 id="pin-setup-modal-title" style="font-size: 1.25rem; color: #fff; margin-bottom: 0.25rem;">Set Payment PIN</h3>
+      <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0;">
+        Secure your UPI transactions with a 4-6 digit numeric PIN.
+      </p>
+    </div>
+
+    <div id="pin-setup-error-banner" style="display: none; padding: 0.6rem 0.8rem; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #FCA5A5; border-radius: var(--radius-md); font-size: 0.8rem; margin-bottom: 1rem; text-align: center;">
+    </div>
+
+    <form id="pin-setup-form" onsubmit="handlePinSetupSubmit(event)">
+      <div style="margin-bottom: 1rem;">
+        <label for="pin-account-password" class="form-label">Current Account Password</label>
+        <input type="password" id="pin-account-password" class="form-control-custom" placeholder="Enter account password" required>
+      </div>
+
+      <div style="margin-bottom: 1rem;">
+        <label for="new-pin-input" class="form-label">New 4-6 Digit Payment PIN</label>
+        <input type="password" id="new-pin-input" class="form-control-custom" placeholder="e.g. 123456" maxlength="6" pattern="[0-9]{4,6}" inputmode="numeric" required style="font-family: monospace; letter-spacing: 0.2rem;">
+        <div style="font-size: 0.75rem; color: var(--text-dim); margin-top: 0.25rem;">Must be exactly 4 to 6 numeric digits.</div>
+      </div>
+
+      <div style="margin-bottom: 1.5rem;">
+        <label for="confirm-pin-input" class="form-label">Confirm Payment PIN</label>
+        <input type="password" id="confirm-pin-input" class="form-control-custom" placeholder="Re-enter payment PIN" maxlength="6" pattern="[0-9]{4,6}" inputmode="numeric" required style="font-family: monospace; letter-spacing: 0.2rem;">
+      </div>
+
+      <button type="submit" id="btn-save-pin" class="btn-primary-custom" style="width: 100%;">
+        <span>Save Payment PIN</span>
+      </button>
     </form>
   </div>
 </div>

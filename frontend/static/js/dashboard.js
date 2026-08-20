@@ -35,6 +35,24 @@ async function loadCustomerProfile() {
     
     const balance = parseFloat(p.account_balance || 0);
     document.getElementById('prof-balance').textContent = `₹${balance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+    const pinStatusEl = document.getElementById('prof-pin-status');
+    const pinBadgeEl = document.getElementById('prof-pin-badge');
+    const pinBtnEl = document.getElementById('btn-manage-pin');
+
+    if (pinStatusEl && pinBadgeEl) {
+      if (p.is_pin_set) {
+        pinStatusEl.textContent = 'Configured (••••)';
+        pinBadgeEl.className = 'badge-risk badge-risk-low';
+        pinBadgeEl.textContent = '✓ Active';
+        if (pinBtnEl) pinBtnEl.textContent = 'Change';
+      } else {
+        pinStatusEl.textContent = 'Not Set';
+        pinBadgeEl.className = 'badge-risk badge-risk-high';
+        pinBadgeEl.textContent = '⚠️ Required';
+        if (pinBtnEl) pinBtnEl.textContent = 'Set PIN';
+      }
+    }
   }
 }
 
@@ -257,8 +275,74 @@ async function viewShapForTx(txId) {
   }
 }
 
+// ==========================================
+// Payment PIN Setup Modal Handlers
+// ==========================================
+
+function openPinSetupModal() {
+  const modal = document.getElementById('pin-setup-modal-overlay');
+  const errBanner = document.getElementById('pin-setup-error-banner');
+  const form = document.getElementById('pin-setup-form');
+  if (errBanner) errBanner.style.display = 'none';
+  if (form) form.reset();
+  if (modal) modal.style.display = 'flex';
+}
+
+function closePinSetupModal() {
+  const modal = document.getElementById('pin-setup-modal-overlay');
+  if (modal) modal.style.display = 'none';
+}
+
+async function handlePinSetupSubmit(e) {
+  e.preventDefault();
+  const password = document.getElementById('pin-account-password').value;
+  const pin = document.getElementById('new-pin-input').value.trim();
+  const confirmPin = document.getElementById('confirm-pin-input').value.trim();
+  const errBanner = document.getElementById('pin-setup-error-banner');
+  const submitBtn = document.getElementById('btn-save-pin');
+
+  if (!/^\d{4,6}$/.test(pin)) {
+    if (errBanner) {
+      errBanner.textContent = 'Payment PIN must be exactly 4 to 6 numeric digits (0-9).';
+      errBanner.style.display = 'block';
+    }
+    return;
+  }
+
+  if (pin !== confirmPin) {
+    if (errBanner) {
+      errBanner.textContent = 'Payment PIN and Confirm PIN do not match.';
+      errBanner.style.display = 'block';
+    }
+    return;
+  }
+
+  submitBtn.disabled = true;
+  submitBtn.innerHTML = '<span>Securing Payment PIN...</span>';
+
+  const res = await window.api.setPaymentPin(password, pin, confirmPin);
+  submitBtn.disabled = false;
+  submitBtn.innerHTML = '<span>Save Payment PIN</span>';
+
+  if (res && res.ok) {
+    showToast('Payment PIN configured successfully! You can now authorize UPI payments.', 'success');
+    closePinSetupModal();
+    await loadCustomerProfile();
+  } else {
+    const errMsg = (res && res.data && res.data.error) || 'Failed to save Payment PIN.';
+    if (errBanner) {
+      errBanner.textContent = errMsg;
+      errBanner.style.display = 'block';
+    }
+    showToast(errMsg, 'error');
+  }
+}
+
 window.openAddBeneficiaryModal = openAddBeneficiaryModal;
 window.openEditBeneficiaryModal = openEditBeneficiaryModal;
 window.closeBeneficiaryModal = closeBeneficiaryModal;
 window.deleteBeneficiaryRecord = deleteBeneficiaryRecord;
 window.viewShapForTx = viewShapForTx;
+window.openPinSetupModal = openPinSetupModal;
+window.closePinSetupModal = closePinSetupModal;
+window.handlePinSetupSubmit = handlePinSetupSubmit;
