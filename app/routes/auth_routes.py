@@ -214,9 +214,9 @@ def set_payment_pin():
     if not data or not isinstance(data, dict):
         return jsonify({"error": "Request body must be a valid JSON object"}), 400
 
-    password = data.get("password", "")
-    pin = data.get("pin", "")
-    confirm_pin = data.get("confirm_pin", data.get("confirmPin", ""))
+    password = data.get("password") or data.get("current_password") or ""
+    pin = data.get("pin") or data.get("new_pin") or data.get("payment_pin") or ""
+    confirm_pin = data.get("confirm_pin") or data.get("confirmPin") or data.get("confirm_payment_pin") or ""
 
     success, error = PaymentService.set_user_pin(
         user_id=user_id,
@@ -229,6 +229,7 @@ def set_payment_pin():
         return jsonify({"error": error}), 400
 
     return jsonify({
+        "success": True,
         "message": "Payment PIN set successfully. You can now use your PIN to authenticate UPI payments.",
         "is_pin_set": True,
     }), 200

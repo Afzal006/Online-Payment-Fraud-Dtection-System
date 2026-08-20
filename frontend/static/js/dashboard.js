@@ -285,12 +285,16 @@ function openPinSetupModal() {
   const form = document.getElementById('pin-setup-form');
   if (errBanner) errBanner.style.display = 'none';
   if (form) form.reset();
-  if (modal) modal.style.display = 'flex';
+  if (modal) {
+    modal.classList.add('active');
+  }
 }
 
 function closePinSetupModal() {
   const modal = document.getElementById('pin-setup-modal-overlay');
-  if (modal) modal.style.display = 'none';
+  if (modal) {
+    modal.classList.remove('active');
+  }
 }
 
 async function handlePinSetupSubmit(e) {

@@ -55,7 +55,7 @@ SIMULATED_MERCHANTS: Dict[str, Dict[str, Any]] = {
 class PaymentService:
     """Service layer managing UPI payloads, recipient identification, and payment PIN security."""
 
-    UPI_ID_REGEX = re.compile(r"^[a-zA-Z0-9.\-_]{2,50}@[a-zA-Z0-9.\-_]{2,30}$")
+    UPI_ID_REGEX = re.compile(r"^[a-zA-Z0-9.\-_]{2,70}@[a-zA-Z0-9.\-_]{2,35}$")
     PHONE_REGEX = re.compile(r"^(\+91)?[6-9]\d{9}$")
     PIN_REGEX = re.compile(r"^\d{4,6}$")
 
@@ -74,7 +74,7 @@ class PaymentService:
         clean_qr = qr_data.strip()
 
         # Handle UPI URL scheme
-        if not clean_qr.startswith("upi://pay?") and not clean_qr.startswith("upi://pay"):
+        if not clean_qr.lower().startswith("upi://pay"):
             # Check if raw UPI ID was provided
             if cls.UPI_ID_REGEX.match(clean_qr):
                 return True, {
@@ -88,21 +88,25 @@ class PaymentService:
             return False, None, "Invalid QR scheme. Expected 'upi://pay?...' standard format."
 
         try:
-            parsed_url = urllib.parse.urlparse(clean_qr)
-            params = urllib.parse.parse_qs(parsed_url.query)
+            query_str = clean_qr.split("?", 1)[1] if "?" in clean_qr else ""
+            raw_params = urllib.parse.parse_qs(query_str)
+            params = {k.lower(): v for k, v in raw_params.items()}
 
             # Payee VPA / UPI ID (Mandatory)
             pa_list = params.get("pa")
             if not pa_list or not pa_list[0].strip():
                 return False, None, "QR code missing mandatory payee UPI address ('pa')."
-            pa = pa_list[0].strip()
+            pa = urllib.parse.unquote_plus(pa_list[0].strip())
 
             if not cls.UPI_ID_REGEX.match(pa):
                 return False, None, f"Invalid payee UPI ID format in QR: '{pa}'"
 
             # Payee Name
             pn_list = params.get("pn")
-            pn = pn_list[0].strip() if pn_list and pn_list[0].strip() else pa.split("@")[0].capitalize()
+            if pn_list and pn_list[0].strip():
+                pn = urllib.parse.unquote_plus(pn_list[0].strip())
+            else:
+                pn = pa.split("@")[0].capitalize()
 
             # Amount (Optional)
             amount = None
@@ -125,7 +129,7 @@ class PaymentService:
 
             # Transaction Note (Optional)
             tn_list = params.get("tn")
-            tn = tn_list[0].strip() if tn_list and tn_list[0].strip() else None
+            tn = urllib.parse.unquote_plus(tn_list[0].strip()) if tn_list and tn_list[0].strip() else None
 
             return True, {
                 "pa": pa,
@@ -151,15 +155,17 @@ class PaymentService:
             return False, None, "Recipient identifier is required (UPI ID, mobile number, or QR data)."
 
         clean_query = query.strip()
+        suggested_name = None
         suggested_amount = None
         suggested_note = None
 
         # Check if query is a QR URI
-        if clean_query.startswith("upi://pay"):
+        if clean_query.lower().startswith("upi://pay"):
             is_valid_qr, qr_dict, qr_err = cls.parse_upi_qr(clean_query)
             if not is_valid_qr:
                 return False, None, qr_err
             clean_query = qr_dict["pa"]
+            suggested_name = qr_dict.get("pn")
             suggested_amount = qr_dict.get("am")
             suggested_note = qr_dict.get("tn")
 
@@ -285,7 +291,7 @@ class PaymentService:
 
         # 5. Generic Valid UPI ID Format (External / Ad-hoc Payee)
         if cls.UPI_ID_REGEX.match(clean_query):
-            handle_name = clean_query.split("@")[0].replace(".", " ").replace("_", " ").title()
+            handle_name = suggested_name or clean_query.split("@")[0].replace(".", " ").replace("_", " ").title()
             return True, {
                 "resolved": True,
                 "recipient_id": None,

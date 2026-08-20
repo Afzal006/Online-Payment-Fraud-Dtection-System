@@ -248,6 +248,115 @@ function onQrCodeScanned(qrPayload) {
   resolveAndDisplayRecipient(qrPayload, 'QR_CODE');
 }
 
+async function decodeQrFromFile(file) {
+  const imgUrl = URL.createObjectURL(file);
+  const img = new Image();
+  await new Promise((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error('Failed to load image file.'));
+    img.src = imgUrl;
+  });
+
+  const origW = img.naturalWidth || img.width;
+  const origH = img.naturalHeight || img.height;
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+  // Pass 1: jsQR at native resolution
+  if (typeof jsQR !== 'undefined') {
+    canvas.width = origW;
+    canvas.height = origH;
+    ctx.drawImage(img, 0, 0);
+    try {
+      const imgData = ctx.getImageData(0, 0, origW, origH);
+      const code = jsQR(imgData.data, origW, origH, { inversionAttempts: 'attemptBoth' });
+      if (code && code.data && code.data.trim()) {
+        URL.revokeObjectURL(imgUrl);
+        return code.data.trim();
+      }
+    } catch (e) {
+      console.warn('jsQR native pass notice:', e);
+    }
+  }
+
+  // Pass 2: jsQR with Multi-Scale Downsampling for High-Res Phone Screenshots (1400, 1000, 800, 600, 400)
+  if (typeof jsQR !== 'undefined' && origW > 400) {
+    const scales = [1400, 1000, 800, 600, 400];
+    for (const tw of scales) {
+      if (origW > tw) {
+        const th = Math.round((origH / origW) * tw);
+        canvas.width = tw;
+        canvas.height = th;
+        ctx.drawImage(img, 0, 0, tw, th);
+        try {
+          const scaledData = ctx.getImageData(0, 0, tw, th);
+          const code = jsQR(scaledData.data, tw, th, { inversionAttempts: 'attemptBoth' });
+          if (code && code.data && code.data.trim()) {
+            URL.revokeObjectURL(imgUrl);
+            return code.data.trim();
+          }
+        } catch (e) {}
+      }
+    }
+  }
+
+  // Pass 3: Grayscale & Contrast Binarization (Paytm / PhonePe Colored Soundbox & Dark QR Themes)
+  if (typeof jsQR !== 'undefined') {
+    const testSizes = [Math.min(900, origW), Math.min(600, origW), Math.min(400, origW)];
+    for (const tw of testSizes) {
+      const th = Math.round((origH / origW) * tw);
+      canvas.width = tw;
+      canvas.height = th;
+      ctx.drawImage(img, 0, 0, tw, th);
+      try {
+        const rawData = ctx.getImageData(0, 0, tw, th);
+        const d = rawData.data;
+        for (let i = 0; i < d.length; i += 4) {
+          const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+          const v = lum < 128 ? 0 : 255;
+          d[i] = v;
+          d[i + 1] = v;
+          d[i + 2] = v;
+        }
+        const code = jsQR(d, tw, th, { inversionAttempts: 'attemptBoth' });
+        if (code && code.data && code.data.trim()) {
+          URL.revokeObjectURL(imgUrl);
+          return code.data.trim();
+        }
+      } catch (e) {}
+    }
+  }
+
+  // Pass 4: ZXing BrowserQRCodeReader
+  if (typeof ZXing !== 'undefined' && ZXing.BrowserQRCodeReader) {
+    try {
+      const codeReader = new ZXing.BrowserQRCodeReader();
+      const zxRes = await codeReader.decodeFromImageElement(img);
+      if (zxRes && zxRes.getText() && zxRes.getText().trim()) {
+        URL.revokeObjectURL(imgUrl);
+        return zxRes.getText().trim();
+      }
+    } catch (e) {}
+  }
+
+  // Pass 5: Html5Qrcode scanFile fallback
+  if (typeof Html5Qrcode !== 'undefined') {
+    try {
+      if (!html5QrScannerInstance) {
+        html5QrScannerInstance = new Html5Qrcode('qr-reader');
+      }
+      const html5Text = await html5QrScannerInstance.scanFile(file, true);
+      if (html5Text && html5Text.trim()) {
+        URL.revokeObjectURL(imgUrl);
+        return html5Text.trim();
+      }
+    } catch (e) {}
+  }
+
+  URL.revokeObjectURL(imgUrl);
+  throw new Error('Unable to detect a readable QR code. Please ensure the QR code image is clearly visible.');
+}
+
 async function handleQrFileUpload(e) {
   const file = e.target.files && e.target.files[0];
   if (!file) return;
@@ -255,21 +364,15 @@ async function handleQrFileUpload(e) {
   const errEl = document.getElementById('camera-error-banner');
   if (errEl) errEl.style.display = 'none';
 
-  if (typeof Html5Qrcode === 'undefined') {
-    showCameraError('QR Scanner library not ready. Please try again.');
-    return;
-  }
-
   try {
-    if (!html5QrScannerInstance) {
-      html5QrScannerInstance = new Html5Qrcode('qr-reader');
-    }
-    const decodedText = await html5QrScannerInstance.scanFile(file, true);
+    showToast('Analyzing and decoding QR image...', 'info');
+    const decodedText = await decodeQrFromFile(file);
     if (decodedText) {
       showToast('QR Image decoded successfully!', 'success');
       resolveAndDisplayRecipient(decodedText, 'QR_CODE');
     }
   } catch (err) {
+    console.error('QR File decoding error:', err);
     showCameraError('Could not decode a valid UPI QR code from the uploaded image. Please ensure the QR is clear and well-lit.');
   } finally {
     e.target.value = '';
@@ -550,12 +653,16 @@ function openPaymentReviewModal() {
   }
   if (pinErr) pinErr.style.display = 'none';
 
-  if (modal) modal.style.display = 'flex';
+  if (modal) {
+    modal.classList.add('active');
+  }
 }
 
 function closePinModal() {
   const modal = document.getElementById('pin-modal-overlay');
-  if (modal) modal.style.display = 'none';
+  if (modal) {
+    modal.classList.remove('active');
+  }
 }
 
 async function executeFinalPayment() {
@@ -614,12 +721,16 @@ function openPinSetupModal() {
   const form = document.getElementById('pin-setup-form');
   if (errBanner) errBanner.style.display = 'none';
   if (form) form.reset();
-  if (modal) modal.style.display = 'flex';
+  if (modal) {
+    modal.classList.add('active');
+  }
 }
 
 function closePinSetupModal() {
   const modal = document.getElementById('pin-setup-modal-overlay');
-  if (modal) modal.style.display = 'none';
+  if (modal) {
+    modal.classList.remove('active');
+  }
 }
 
 async function handlePinSetupSubmit(e) {
