@@ -36,6 +36,7 @@ from app.extensions import db
 from app.models.user import User
 from app.models.password_reset_token import PasswordResetToken
 from app.services.auth_service import AuthService
+from app.providers.email_provider import DevelopmentEmailProvider
 
 
 @pytest.fixture
@@ -44,6 +45,7 @@ def app():
     app = create_app("testing")
     with app.app_context():
         db.create_all()
+        DevelopmentEmailProvider.clear_history()
         yield app
         db.session.remove()
         db.drop_all()
@@ -99,7 +101,7 @@ def test_1_forgot_password_existing_email(app, client, seed_user):
     res = client.post("/api/auth/forgot-password", json={"email": seed_user["email"]})
     assert res.status_code == 200
     data = res.get_json()
-    assert "If an account exists for this email, a password reset code has been sent." in data["message"]
+    assert "If an account exists for this email, a password reset link has been sent." in data["message"]
     # Verify token was created in database
     with app.app_context():
         token_record = PasswordResetToken.query.filter_by(user_id=seed_user["id"]).first()
@@ -115,7 +117,7 @@ def test_2_forgot_password_non_existing_email(app, client):
     res = client.post("/api/auth/forgot-password", json={"email": "nonexistent.user@example.com"})
     assert res.status_code == 200
     data = res.get_json()
-    assert "If an account exists for this email, a password reset code has been sent." in data["message"]
+    assert "If an account exists for this email, a password reset link has been sent." in data["message"]
     # Verify no token record was created
     with app.app_context():
         assert PasswordResetToken.query.count() == 0
@@ -152,12 +154,13 @@ def test_4_invalid_email_format(client):
 def test_5_reset_token_entropy_and_randomness(app, seed_user):
     """Reset token has cryptographic entropy (secrets module, min 32 chars length)."""
     with app.app_context():
-        success, dev_token, error = AuthService.request_password_reset(seed_user["email"])
+        success, error = AuthService.request_password_reset(seed_user["email"])
         assert success is True
         assert error is None
-        assert dev_token is not None
-        assert len(dev_token) >= 32
-        assert isinstance(dev_token, str)
+        raw_token = DevelopmentEmailProvider.get_last_token(seed_user["email"])
+        assert raw_token is not None
+        assert len(raw_token) >= 32
+        assert isinstance(raw_token, str)
 
 
 # ==============================================================================
@@ -166,7 +169,8 @@ def test_5_reset_token_entropy_and_randomness(app, seed_user):
 def test_6_raw_token_not_in_database(app, seed_user):
     """Only the SHA-256 hash of the token is persisted, never the raw token."""
     with app.app_context():
-        _, raw_token, _ = AuthService.request_password_reset(seed_user["email"])
+        AuthService.request_password_reset(seed_user["email"])
+        raw_token = DevelopmentEmailProvider.get_last_token(seed_user["email"])
         token_record = PasswordResetToken.query.filter_by(user_id=seed_user["id"]).first()
         assert token_record is not None
         # Must not equal raw token
@@ -183,7 +187,8 @@ def test_6_raw_token_not_in_database(app, seed_user):
 def test_7_valid_token_resets_password(client, app, seed_user):
     """Valid token successfully updates user password and returns 200."""
     with app.app_context():
-        _, raw_token, _ = AuthService.request_password_reset(seed_user["email"])
+        AuthService.request_password_reset(seed_user["email"])
+        raw_token = DevelopmentEmailProvider.get_last_token(seed_user["email"])
 
     res = client.post("/api/auth/reset-password", json={
         "token": raw_token,
@@ -219,7 +224,8 @@ def test_8_invalid_token_rejected(client):
 def test_9_expired_token_rejected(client, app, seed_user):
     """Token with expires_at in the past returns 400 Bad Request."""
     with app.app_context():
-        _, raw_token, _ = AuthService.request_password_reset(seed_user["email"])
+        AuthService.request_password_reset(seed_user["email"])
+        raw_token = DevelopmentEmailProvider.get_last_token(seed_user["email"])
         token_record = PasswordResetToken.query.filter_by(user_id=seed_user["id"]).first()
         # Set expiry to 1 hour in the past
         token_record.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
@@ -240,7 +246,8 @@ def test_9_expired_token_rejected(client, app, seed_user):
 def test_10_already_used_token_rejected(client, app, seed_user):
     """A token that has already been consumed cannot be reused."""
     with app.app_context():
-        _, raw_token, _ = AuthService.request_password_reset(seed_user["email"])
+        AuthService.request_password_reset(seed_user["email"])
+        raw_token = DevelopmentEmailProvider.get_last_token(seed_user["email"])
 
     # First reset: should succeed
     res1 = client.post("/api/auth/reset-password", json={
@@ -266,8 +273,10 @@ def test_10_already_used_token_rejected(client, app, seed_user):
 def test_11_old_token_invalidated_after_new_request(client, app, seed_user):
     """Generating a new reset token invalidates any previous active token for that user."""
     with app.app_context():
-        _, token1, _ = AuthService.request_password_reset(seed_user["email"])
-        _, token2, _ = AuthService.request_password_reset(seed_user["email"])
+        AuthService.request_password_reset(seed_user["email"])
+        token1 = DevelopmentEmailProvider.get_last_token(seed_user["email"])
+        AuthService.request_password_reset(seed_user["email"])
+        token2 = DevelopmentEmailProvider.get_last_token(seed_user["email"])
 
     # Token 1 should now be rejected as already used/invalidated
     res1 = client.post("/api/auth/reset-password", json={
@@ -292,7 +301,8 @@ def test_11_old_token_invalidated_after_new_request(client, app, seed_user):
 def test_12_password_mismatch_rejected(client, app, seed_user):
     """Mismatched new_password and confirm_password returns 400 Bad Request."""
     with app.app_context():
-        _, raw_token, _ = AuthService.request_password_reset(seed_user["email"])
+        AuthService.request_password_reset(seed_user["email"])
+        raw_token = DevelopmentEmailProvider.get_last_token(seed_user["email"])
 
     res = client.post("/api/auth/reset-password", json={
         "token": raw_token,
@@ -309,7 +319,8 @@ def test_12_password_mismatch_rejected(client, app, seed_user):
 def test_13_weak_password_rejected(client, app, seed_user):
     """Password shorter than 8 characters is rejected with 400 Bad Request."""
     with app.app_context():
-        _, raw_token, _ = AuthService.request_password_reset(seed_user["email"])
+        AuthService.request_password_reset(seed_user["email"])
+        raw_token = DevelopmentEmailProvider.get_last_token(seed_user["email"])
 
     res = client.post("/api/auth/reset-password", json={
         "token": raw_token,
@@ -326,7 +337,8 @@ def test_13_weak_password_rejected(client, app, seed_user):
 def test_14_successful_reset_marks_token_used(client, app, seed_user):
     """Resetting password sets used_at timestamp on the token record."""
     with app.app_context():
-        _, raw_token, _ = AuthService.request_password_reset(seed_user["email"])
+        AuthService.request_password_reset(seed_user["email"])
+        raw_token = DevelopmentEmailProvider.get_last_token(seed_user["email"])
 
     client.post("/api/auth/reset-password", json={
         "token": raw_token,
@@ -400,7 +412,8 @@ def test_16_forgot_password_rate_limiting(client, seed_user):
 def test_17_token_attempt_lockout(client, app, seed_user):
     """After 5 failed verification attempts, token is locked and returns 429."""
     with app.app_context():
-        _, raw_token, _ = AuthService.request_password_reset(seed_user["email"])
+        AuthService.request_password_reset(seed_user["email"])
+        raw_token = DevelopmentEmailProvider.get_last_token(seed_user["email"])
         token_record = PasswordResetToken.query.filter_by(user_id=seed_user["id"]).first()
         # Simulate 5 failed attempts
         token_record.attempt_count = 5
@@ -421,7 +434,8 @@ def test_17_token_attempt_lockout(client, app, seed_user):
 def test_18_password_stored_hashed(client, app, seed_user):
     """Password hash in database uses secure Werkzeug algorithm (never plaintext)."""
     with app.app_context():
-        _, raw_token, _ = AuthService.request_password_reset(seed_user["email"])
+        AuthService.request_password_reset(seed_user["email"])
+        raw_token = DevelopmentEmailProvider.get_last_token(seed_user["email"])
 
     new_plain_pw = "SuperSecretPassword2026!"
     client.post("/api/auth/reset-password", json={
@@ -455,7 +469,8 @@ def test_19_sensitive_data_protection(client, seed_user, caplog):
 def test_20_login_with_new_password(client, app, seed_user):
     """After password reset, user can log in with new password and receive a valid JWT."""
     with app.app_context():
-        _, raw_token, _ = AuthService.request_password_reset(seed_user["email"])
+        AuthService.request_password_reset(seed_user["email"])
+        raw_token = DevelopmentEmailProvider.get_last_token(seed_user["email"])
 
     client.post("/api/auth/reset-password", json={
         "token": raw_token,
@@ -479,7 +494,8 @@ def test_20_login_with_new_password(client, app, seed_user):
 def test_21_old_password_rejected_after_reset(client, app, seed_user):
     """After password reset, authenticating with the old password returns 401."""
     with app.app_context():
-        _, raw_token, _ = AuthService.request_password_reset(seed_user["email"])
+        AuthService.request_password_reset(seed_user["email"])
+        raw_token = DevelopmentEmailProvider.get_last_token(seed_user["email"])
 
     client.post("/api/auth/reset-password", json={
         "token": raw_token,

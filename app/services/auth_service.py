@@ -18,15 +18,17 @@ class AuthService:
         name: str,
         email: str,
         password: str,
+        phone_number: Optional[str] = None,
         role: str = "USER",
     ) -> Tuple[Optional[User], Optional[str]]:
         """
-        Register a new user in the database with a hashed password.
+        Register a new user in the database with a hashed password and optional phone OTP challenge.
 
         Returns:
             (User, None) on success
             (None, error_message) on failure
         """
+        import re
         clean_email = email.strip().lower()
         clean_name = name.strip()
 
@@ -35,13 +37,28 @@ class AuthService:
         if existing_user:
             return None, "Email is already registered"
 
+        phone_digits = None
+        if phone_number and str(phone_number).strip():
+            from app.utils.validators import validate_phone_number
+            is_valid_phone, phone_digits, phone_err = validate_phone_number(str(phone_number))
+            if not is_valid_phone:
+                return None, phone_err
+
+            # Check if phone number is already registered
+            existing_phone = User.query.filter(
+                (User.phone_number == phone_digits) | (User.phone_number == f"+91{phone_digits}")
+            ).first()
+            if existing_phone:
+                return None, "Mobile number is already registered to another account"
+
         user_role = role.upper() if role in ["USER", "ADMIN"] else "USER"
         user = User(
             name=clean_name,
             email=clean_email,
+            phone_number=phone_digits,
             role=user_role,
             account_balance=100000.0 if user_role == "USER" else 0.0,
-            is_phone_verified=True,
+            is_phone_verified=False if phone_digits else True,
             is_active=True,
         )
         user.set_password(password)
@@ -56,6 +73,20 @@ class AuthService:
         email_prefix = clean_email.split("@")[0].replace(".", "_").replace("+", "_")
         user.primary_upi_id = f"{email_prefix}@fraudshield"
 
+        # If mobile number was provided, generate secure OTP and dispatch via SmsProvider
+        if phone_digits:
+            raw_otp = f"{secrets.randbelow(900000) + 100000}"
+            user.set_phone_otp(raw_otp, expiry_seconds=300)
+            from app.providers.sms_provider import get_sms_provider
+            sms_provider = get_sms_provider()
+            sms_ok, sms_err = sms_provider.send_otp(
+                phone_number=f"+91{phone_digits}",
+                otp_code=raw_otp,
+                purpose="REGISTRATION"
+            )
+            if not sms_ok:
+                current_app.logger.warning("SMS OTP dispatch returned: %s", sms_err)
+
         db.session.commit()
 
         # Audit Log Event
@@ -67,10 +98,157 @@ class AuthService:
             user_id=user.id,
             target_resource=f"User:{user.id}",
             severity="INFO",
-            details={"role": user.role, "customer_account_id": user.customer_account_id},
+            details={
+                "role": user.role,
+                "customer_account_id": user.customer_account_id,
+                "phone_number": user.phone_number,
+                "is_phone_verified": user.is_phone_verified,
+            },
         )
 
         return user, None
+
+    @staticmethod
+    def verify_phone_otp(
+        phone_or_email: str,
+        otp_code: str,
+    ) -> Tuple[bool, Optional[User], Optional[str]]:
+        """
+        Verify incoming 6-digit OTP against user's stored hash and activate phone verification.
+        """
+        import re
+        if not phone_or_email or not otp_code:
+            return False, None, "Identifier and OTP code are required."
+
+        clean_id = phone_or_email.strip()
+        user = None
+        digits_only = re.sub(r"\D", "", clean_id)
+        if len(digits_only) == 10:
+            user = User.query.filter(
+                (User.phone_number == digits_only) | (User.phone_number == f"+91{digits_only}")
+            ).first()
+        elif len(digits_only) == 12 and digits_only.startswith("91"):
+            user = User.query.filter(
+                (User.phone_number == digits_only[2:]) | (User.phone_number == f"+{digits_only}")
+            ).first()
+
+        if not user:
+            user = User.query.filter(
+                (User.email == clean_id.lower()) | (User.primary_upi_id == clean_id.lower())
+            ).first()
+
+        if not user:
+            return False, None, "Account not found for the provided identifier."
+
+        if user.is_phone_verified:
+            return True, user, "Mobile number is already verified."
+
+        is_valid, err = user.check_phone_otp(otp_code)
+        db.session.commit()
+
+        if not is_valid:
+            AuditService.log_event(
+                event_type="PHONE_VERIFICATION_FAILED",
+                actor=user.email,
+                action="POST /api/auth/verify-phone-otp",
+                result="FAILURE",
+                user_id=user.id,
+                target_resource=f"User:{user.id}",
+                severity="WARN",
+                details={"reason": err, "attempts": user.phone_otp_attempts},
+            )
+            return False, user, err
+
+        AuditService.log_event(
+            event_type="PHONE_VERIFIED",
+            actor=user.email,
+            action="POST /api/auth/verify-phone-otp",
+            result="SUCCESS",
+            user_id=user.id,
+            target_resource=f"User:{user.id}",
+            severity="INFO",
+            details={
+                "phone_number": user.phone_number,
+                "verified_at": user.phone_verified_at.isoformat() if user.phone_verified_at else None
+            },
+        )
+        return True, user, None
+
+    @staticmethod
+    def resend_phone_otp(
+        phone_or_email: str,
+    ) -> Tuple[bool, Optional[str], Optional[str]]:
+        """
+        Rate-limited resend of phone verification OTP code.
+        """
+        import re
+        if not phone_or_email:
+            return False, None, "Identifier is required."
+
+        clean_id = phone_or_email.strip()
+        user = None
+        digits_only = re.sub(r"\D", "", clean_id)
+        if len(digits_only) == 10:
+            user = User.query.filter(
+                (User.phone_number == digits_only) | (User.phone_number == f"+91{digits_only}")
+            ).first()
+        elif len(digits_only) == 12 and digits_only.startswith("91"):
+            user = User.query.filter(
+                (User.phone_number == digits_only[2:]) | (User.phone_number == f"+{digits_only}")
+            ).first()
+
+        if not user:
+            user = User.query.filter(
+                (User.email == clean_id.lower()) | (User.primary_upi_id == clean_id.lower())
+            ).first()
+
+        if not user:
+            # Anti-enumeration: return true silently if account does not exist
+            return True, None, None
+
+        if user.is_phone_verified:
+            return False, None, "Mobile number is already verified."
+
+        now = datetime.now(timezone.utc)
+        if user.phone_otp_last_sent_at:
+            last_sent = user.phone_otp_last_sent_at
+            if last_sent.tzinfo is None:
+                last_sent = last_sent.replace(tzinfo=timezone.utc)
+            if (now - last_sent).total_seconds() < 60:
+                remaining_sec = int(60 - (now - last_sent).total_seconds())
+                return False, None, f"Please wait {remaining_sec} second(s) before requesting another OTP."
+
+        raw_otp = f"{secrets.randbelow(900000) + 100000}"
+        user.set_phone_otp(raw_otp, expiry_seconds=300)
+
+        from app.providers.sms_provider import get_sms_provider
+        sms_provider = get_sms_provider()
+        target_phone = user.phone_number or "phone"
+        if not target_phone.startswith("+"):
+            target_phone = f"+91{target_phone}"
+
+        sms_ok, sms_err = sms_provider.send_otp(
+            phone_number=target_phone,
+            otp_code=raw_otp,
+            purpose="REGISTRATION"
+        )
+        db.session.commit()
+
+        if not sms_ok:
+            return False, None, sms_err or "Failed to deliver SMS verification code."
+
+        AuditService.log_event(
+            event_type="PHONE_OTP_RESENT",
+            actor=user.email,
+            action="POST /api/auth/resend-phone-otp",
+            result="SUCCESS",
+            user_id=user.id,
+            target_resource=f"User:{user.id}",
+            severity="INFO",
+        )
+
+        dev_otp = raw_otp if current_app.config.get("TESTING") or current_app.config.get("DEBUG") else None
+        return True, dev_otp, None
 
     @staticmethod
     def authenticate_user(
@@ -146,6 +324,19 @@ class AuthService:
             )
             return None, None, "Invalid email or password"
 
+        # Check phone verification state
+        if not user.is_phone_verified and user.phone_number:
+            AuditService.log_event(
+                event_type="LOGIN_FAILED",
+                actor=clean_email,
+                action="POST /api/auth/login",
+                result="DENIED",
+                user_id=user.id,
+                severity="WARN",
+                details={"reason": "Mobile number is pending verification"},
+            )
+            return None, None, "Account mobile number is pending verification. Please verify your phone OTP."
+
         # Record successful login on device
         if dev_profile:
             DeviceTrustService.record_login_attempt(dev_profile.id, success=True)
@@ -199,33 +390,42 @@ class AuthService:
     def request_password_reset(
         email: str,
         remote_ip: Optional[str] = None,
-    ) -> Tuple[bool, Optional[str], Optional[str]]:
+    ) -> Tuple[bool, Optional[str]]:
         """
         Initiate a password reset flow for the given email.
 
         Security & Anti-Enumeration:
-        - If the email does not exist, returns (True, None, None) without creating a token.
+        - If the email does not exist, returns (True, None) without creating a token.
         - The caller always receives an identical generic success message.
         - Enforces rate limiting per account (max requests per window).
         - Invalidates all previous active reset tokens for this user.
         - Stores only SHA-256 token hash in database.
-        - In dev mode, returns the raw token for local testing/demo. In prod, returns None for dev token.
+        - Dispatches reset link via EmailProvider abstraction.
+        - NEVER exposes raw reset token in API responses or public logs.
 
         Returns:
-            (success, dev_token_or_none, error_message_or_none)
+            (success: bool, error_message_or_none: Optional[str])
         """
         clean_email = email.strip().lower()
         user = User.query.filter_by(email=clean_email).first()
 
-        # Anti-enumeration: If user does not exist, silently return success
+        # Anti-enumeration: If user does not exist, log requested and silently return success
         if not user:
-            return True, None, None
+            AuditService.log_event(
+                event_type="PASSWORD_RESET_REQUESTED",
+                actor=clean_email,
+                action="POST /api/auth/forgot-password",
+                result="NOT_FOUND",
+                severity="INFO",
+                ip_address=remote_ip,
+                details={"reason": "Email not registered"},
+            )
+            return True, None
 
         # Configuration parameters
-        expiry_minutes = current_app.config.get("PASSWORD_RESET_TOKEN_EXPIRY_MINUTES", 10)
+        expiry_minutes = current_app.config.get("PASSWORD_RESET_TOKEN_EXPIRY_MINUTES", 15)
         max_requests = current_app.config.get("PASSWORD_RESET_MAX_REQUESTS_PER_WINDOW", 3)
         window_minutes = current_app.config.get("PASSWORD_RESET_REQUEST_WINDOW_MINUTES", 15)
-        dev_mode = current_app.config.get("PASSWORD_RESET_DEV_MODE", False)
 
         now = datetime.now(timezone.utc)
         window_start = now - timedelta(minutes=window_minutes)
@@ -237,7 +437,18 @@ class AuthService:
         ).count()
 
         if recent_requests_count >= max_requests:
-            return False, None, "Too many password reset requests. Please try again later."
+            AuditService.log_event(
+                event_type="PASSWORD_RESET_RATE_LIMITED",
+                actor=user.email,
+                action="POST /api/auth/forgot-password",
+                result="RATE_LIMITED",
+                user_id=user.id,
+                target_resource=f"User:{user.id}",
+                severity="WARN",
+                ip_address=remote_ip,
+                details={"attempts_in_window": recent_requests_count},
+            )
+            return False, "Too many password reset requests. Please try again later."
 
         # Invalidate any existing active/unused reset tokens for this user
         active_tokens = PasswordResetToken.query.filter(
@@ -275,8 +486,39 @@ class AuthService:
             ip_address=remote_ip,
         )
 
-        dev_token_out = raw_token if dev_mode else None
-        return True, dev_token_out, None
+        # Dispatch reset email via EmailProvider
+        from app.providers.email_provider import get_email_provider
+        email_provider = get_email_provider()
+        reset_url = f"/reset-password?token={raw_token}"
+        email_ok, email_err = email_provider.send_password_reset_email(
+            recipient_email=user.email,
+            reset_url=reset_url,
+            expires_at=expires_at,
+        )
+
+        if email_ok:
+            AuditService.log_event(
+                event_type="PASSWORD_RESET_EMAIL_SENT",
+                actor=user.email,
+                action="POST /api/auth/forgot-password",
+                result="SUCCESS",
+                user_id=user.id,
+                target_resource=f"User:{user.id}",
+                severity="INFO",
+            )
+        else:
+            AuditService.log_event(
+                event_type="PASSWORD_RESET_FAILED",
+                actor=user.email,
+                action="POST /api/auth/forgot-password",
+                result="FAILURE",
+                user_id=user.id,
+                target_resource=f"User:{user.id}",
+                severity="WARN",
+                details={"reason": email_err or "Email dispatch failed"},
+            )
+
+        return True, None
 
     @staticmethod
     def reset_password_with_token(
@@ -294,7 +536,7 @@ class AuthService:
         - Atomically commits all changes.
 
         Returns:
-            (success, error_message_or_none)
+            (success: bool, error_message_or_none: Optional[str])
         """
         if not token or not isinstance(token, str) or not token.strip():
             AuditService.log_event(
@@ -343,7 +585,7 @@ class AuthService:
             reset_record.record_failed_attempt()
             db.session.commit()
             AuditService.log_event(
-                event_type="PASSWORD_RESET_FAILED",
+                event_type="PASSWORD_RESET_TOKEN_REUSED",
                 actor=f"User:{reset_record.user_id}",
                 action="POST /api/auth/reset-password",
                 result="DENIED",
@@ -363,7 +605,7 @@ class AuthService:
             reset_record.record_failed_attempt()
             db.session.commit()
             AuditService.log_event(
-                event_type="PASSWORD_RESET_FAILED",
+                event_type="PASSWORD_RESET_TOKEN_EXPIRED",
                 actor=f"User:{reset_record.user_id}",
                 action="POST /api/auth/reset-password",
                 result="FAILURE",

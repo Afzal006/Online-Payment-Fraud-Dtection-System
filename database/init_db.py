@@ -83,6 +83,24 @@ def init_database(app=None, config_name: str = "development") -> bool:
                 if "is_pin_set" not in user_cols:
                     print("[*] Migrating users schema: adding column 'is_pin_set'...")
                     conn.execute(db.text("ALTER TABLE users ADD COLUMN is_pin_set BOOLEAN DEFAULT 0"))
+                if "payment_pin_updated_at" not in user_cols:
+                    print("[*] Migrating users schema: adding column 'payment_pin_updated_at'...")
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN payment_pin_updated_at DATETIME"))
+                if "phone_otp_hash" not in user_cols:
+                    print("[*] Migrating users schema: adding column 'phone_otp_hash'...")
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN phone_otp_hash VARCHAR(255)"))
+                if "phone_otp_expires_at" not in user_cols:
+                    print("[*] Migrating users schema: adding column 'phone_otp_expires_at'...")
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN phone_otp_expires_at DATETIME"))
+                if "phone_otp_attempts" not in user_cols:
+                    print("[*] Migrating users schema: adding column 'phone_otp_attempts'...")
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN phone_otp_attempts INTEGER DEFAULT 0"))
+                if "phone_verified_at" not in user_cols:
+                    print("[*] Migrating users schema: adding column 'phone_verified_at'...")
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN phone_verified_at DATETIME"))
+                if "phone_otp_last_sent_at" not in user_cols:
+                    print("[*] Migrating users schema: adding column 'phone_otp_last_sent_at'...")
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN phone_otp_last_sent_at DATETIME"))
                 conn.commit()
 
         if "transactions" in table_names:

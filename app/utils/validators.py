@@ -6,6 +6,44 @@ import re
 from typing import Dict, Any, Tuple, Optional
 
 EMAIL_REGEX = re.compile(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
+INDIAN_PHONE_REGEX = re.compile(r"^[6-9]\d{9}$")
+OTP_REGEX = re.compile(r"^\d{6}$")
+
+
+def validate_phone_number(phone_str: Optional[str]) -> Tuple[bool, Optional[str], Optional[str]]:
+    """
+    Validate and normalize Indian mobile phone number.
+
+    Rules:
+    - Strips spaces, dashes, parentheses.
+    - Matches 10-digit Indian numbers starting with 6, 7, 8, or 9.
+    - Handles +91, 91, or 0 prefixes cleanly.
+
+    Returns:
+        (is_valid: bool, normalized_phone: Optional[str], error_message: Optional[str])
+    """
+    if not phone_str or not isinstance(phone_str, str) or not phone_str.strip():
+        return False, None, "Phone number is required."
+
+    raw = phone_str.strip()
+    digits = re.sub(r"\D", "", raw)
+
+    if len(digits) == 10:
+        if not INDIAN_PHONE_REGEX.match(digits):
+            return False, None, "Invalid mobile number. Indian mobile numbers must start with 6, 7, 8, or 9."
+        return True, digits, None
+    elif len(digits) == 12 and digits.startswith("91"):
+        sub_digits = digits[2:]
+        if not INDIAN_PHONE_REGEX.match(sub_digits):
+            return False, None, "Invalid mobile number. Indian mobile numbers must start with 6, 7, 8, or 9."
+        return True, sub_digits, None
+    elif len(digits) == 11 and digits.startswith("0"):
+        sub_digits = digits[1:]
+        if not INDIAN_PHONE_REGEX.match(sub_digits):
+            return False, None, "Invalid mobile number. Indian mobile numbers must start with 6, 7, 8, or 9."
+        return True, sub_digits, None
+    else:
+        return False, None, "Mobile number must be a valid 10-digit Indian number (e.g. 9876543210 or +91 98765 43210)."
 
 
 def validate_registration_input(data: Optional[Dict[str, Any]]) -> Tuple[bool, Optional[str]]:
@@ -16,6 +54,7 @@ def validate_registration_input(data: Optional[Dict[str, Any]]) -> Tuple[bool, O
     - name: string, 2-100 characters
     - email: valid email format
     - password: minimum 8 characters
+    - phone_number: valid Indian mobile (optional if legacy, validated when present)
     - role: 'USER' or 'ADMIN' (optional, defaults to 'USER')
     """
     if not data or not isinstance(data, dict):
@@ -33,9 +72,43 @@ def validate_registration_input(data: Optional[Dict[str, Any]]) -> Tuple[bool, O
     if not password or not isinstance(password, str) or len(password) < 8:
         return False, "Password must be at least 8 characters long"
 
+    phone = data.get("phone_number") or data.get("phone") or data.get("mobile")
+    if phone:
+        is_valid_phone, _, phone_err = validate_phone_number(str(phone))
+        if not is_valid_phone:
+            return False, phone_err
+
     role = data.get("role", "USER")
     if role not in ["USER", "ADMIN"]:
         return False, "Role must be either 'USER' or 'ADMIN'"
+
+    return True, None
+
+
+def validate_phone_otp_input(data: Optional[Dict[str, Any]]) -> Tuple[bool, Optional[str]]:
+    """Validate phone verification OTP submission payload."""
+    if not data or not isinstance(data, dict):
+        return False, "Request body must be a JSON object"
+
+    phone = data.get("phone_number") or data.get("phone") or data.get("email")
+    if not phone or not isinstance(phone, str) or not phone.strip():
+        return False, "Phone number or email identifier is required"
+
+    otp_code = data.get("otp_code") or data.get("otp") or data.get("code")
+    if not otp_code or not isinstance(otp_code, str) or not OTP_REGEX.match(str(otp_code).strip()):
+        return False, "OTP verification code must be exactly 6 numeric digits"
+
+    return True, None
+
+
+def validate_resend_otp_input(data: Optional[Dict[str, Any]]) -> Tuple[bool, Optional[str]]:
+    """Validate phone verification OTP resend request payload."""
+    if not data or not isinstance(data, dict):
+        return False, "Request body must be a JSON object"
+
+    phone = data.get("phone_number") or data.get("phone") or data.get("email")
+    if not phone or not isinstance(phone, str) or not phone.strip():
+        return False, "Phone number or email identifier is required"
 
     return True, None
 

@@ -30,14 +30,22 @@ class User(db.Model):
     customer_account_id = db.Column(db.String(30), unique=True, nullable=True, index=True)
     primary_upi_id = db.Column(db.String(100), unique=True, nullable=True, index=True)
     account_balance = db.Column(db.Float, nullable=False, default=100000.0)
-    is_phone_verified = db.Column(db.Boolean, default=True, nullable=False)
+    is_phone_verified = db.Column(db.Boolean, default=False, nullable=False)
+    phone_verified_at = db.Column(db.DateTime, nullable=True)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
+
+    # Real Phone Verification OTP Lifecycle
+    phone_otp_hash = db.Column(db.String(255), nullable=True)
+    phone_otp_expires_at = db.Column(db.DateTime, nullable=True)
+    phone_otp_attempts = db.Column(db.Integer, default=0, nullable=False)
+    phone_otp_last_sent_at = db.Column(db.DateTime, nullable=True)
 
     # Secure Payment PIN (Layer 1 Transaction Authentication)
     payment_pin_hash = db.Column(db.String(255), nullable=True)
     pin_failed_attempts = db.Column(db.Integer, default=0, nullable=False)
     pin_locked_until = db.Column(db.DateTime, nullable=True)
     is_pin_set = db.Column(db.Boolean, default=False, nullable=False)
+    payment_pin_updated_at = db.Column(db.DateTime, nullable=True)
 
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
     password_changed_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
@@ -55,6 +63,58 @@ class User(db.Model):
     def check_password(self, password: str) -> bool:
         """Verify candidate password against stored hash."""
         return check_password_hash(self.password_hash, password)
+
+    def set_phone_otp(self, otp_code: str, expiry_seconds: int = 300) -> None:
+        """
+        Hash plaintext mobile verification OTP, set expiry and update dispatch timestamp.
+        """
+        from datetime import timedelta
+        clean_otp = str(otp_code).strip()
+        self.phone_otp_hash = generate_password_hash(clean_otp)
+        self.phone_otp_expires_at = datetime.now(timezone.utc) + timedelta(seconds=expiry_seconds)
+        self.phone_otp_attempts = 0
+        self.phone_otp_last_sent_at = datetime.now(timezone.utc)
+
+    def check_phone_otp(self, candidate_otp: str) -> tuple:
+        """
+        Verify candidate OTP against stored hash with expiry and attempt limiting.
+        Returns: (is_valid: bool, error_message: Optional[str])
+        """
+        if not self.phone_otp_hash or not self.phone_otp_expires_at:
+            return False, "No active verification OTP found. Please request a new code."
+
+        now = datetime.now(timezone.utc)
+        expires_at = self.phone_otp_expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+        if now > expires_at:
+            self.phone_otp_hash = None
+            return False, "Verification OTP has expired. Please request a new code."
+
+        if self.phone_otp_attempts >= 3:
+            self.phone_otp_hash = None
+            return False, "Maximum verification attempts exceeded. Please request a new OTP."
+
+        clean_candidate = str(candidate_otp).strip()
+        if check_password_hash(self.phone_otp_hash, clean_candidate):
+            self.mark_phone_verified()
+            return True, None
+        else:
+            self.phone_otp_attempts += 1
+            remaining = max(0, 3 - self.phone_otp_attempts)
+            if self.phone_otp_attempts >= 3:
+                self.phone_otp_hash = None
+                return False, "Incorrect OTP. Maximum attempts reached. Please request a new OTP."
+            return False, f"Incorrect verification code. {remaining} attempt(s) remaining."
+
+    def mark_phone_verified(self) -> None:
+        """Mark account phone number as verified and clear temporary OTP fields."""
+        self.is_phone_verified = True
+        self.phone_verified_at = datetime.now(timezone.utc)
+        self.phone_otp_hash = None
+        self.phone_otp_expires_at = None
+        self.phone_otp_attempts = 0
 
     def set_payment_pin(self, pin: str) -> None:
         """Securely hash and persist 4-6 digit numeric payment PIN."""
@@ -129,10 +189,12 @@ class User(db.Model):
             "customer_account_id": self.customer_account_id,
             "primary_upi_id": self.primary_upi_id,
             "account_balance": float(self.account_balance) if self.account_balance is not None else 0.0,
-            "is_phone_verified": self.is_phone_verified,
-            "is_active": self.is_active,
+            "is_phone_verified": bool(self.is_phone_verified),
+            "phone_verified_at": self.phone_verified_at.isoformat() if self.phone_verified_at else None,
+            "is_active": bool(self.is_active),
             "is_pin_set": bool(self.is_pin_set),
             "is_pin_locked": self.is_pin_locked,
+            "payment_pin_updated_at": self.payment_pin_updated_at.isoformat() if self.payment_pin_updated_at else None,
             "beneficiary_count": self.beneficiaries.count() if hasattr(self, "beneficiaries") and self.beneficiaries else 0,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }

@@ -7,7 +7,7 @@ Routes:
 - GET  /api/auth/me       : Retrieve authenticated user profile
 """
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.services.auth_service import AuthService
 from app.utils.validators import (
@@ -15,6 +15,8 @@ from app.utils.validators import (
     validate_login_input,
     validate_forgot_password_input,
     validate_reset_password_input,
+    validate_phone_otp_input,
+    validate_resend_otp_input,
 )
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
@@ -22,26 +24,89 @@ auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
 @auth_bp.route("/register", methods=["POST"])
 def register():
-    """Register a new user account."""
+    """Register a new user account with phone OTP challenge."""
     data = request.get_json(silent=True)
     is_valid, error_msg = validate_registration_input(data)
     if not is_valid:
         return jsonify({"error": error_msg}), 400
 
+    phone = data.get("phone_number") or data.get("phone") or data.get("mobile")
+
     user, error = AuthService.register_user(
         name=data["name"],
         email=data["email"],
         password=data["password"],
+        phone_number=phone,
         role=data.get("role", "USER"),
     )
 
     if error:
         return jsonify({"error": error}), 409
 
-    return jsonify({
-        "message": "User registered successfully",
+    requires_verification = bool(user.phone_number and not user.is_phone_verified)
+    msg = (
+        "User registered successfully. A 6-digit verification code has been sent to your mobile number."
+        if requires_verification
+        else "User registered successfully"
+    )
+
+    response_data = {
+        "message": msg,
         "user": user.to_dict(),
-    }), 201
+        "requires_phone_verification": requires_verification,
+    }
+
+    return jsonify(response_data), 201
+
+
+@auth_bp.route("/verify-phone-otp", methods=["POST"])
+def verify_phone_otp():
+    """Verify phone verification OTP code and activate account."""
+    data = request.get_json(silent=True)
+    is_valid, error_msg = validate_phone_otp_input(data)
+    if not is_valid:
+        return jsonify({"error": error_msg}), 400
+
+    identifier = data.get("phone_number") or data.get("phone") or data.get("email")
+    otp_code = data.get("otp_code") or data.get("otp") or data.get("code")
+
+    success, user, error = AuthService.verify_phone_otp(
+        phone_or_email=identifier,
+        otp_code=otp_code,
+    )
+
+    if not success:
+        return jsonify({"error": error}), 400
+
+    return jsonify({
+        "message": "Mobile number verified successfully. You may now sign in to your account.",
+        "user": user.to_dict() if user else None,
+        "is_phone_verified": True,
+    }), 200
+
+
+@auth_bp.route("/resend-phone-otp", methods=["POST"])
+def resend_phone_otp():
+    """Request resend of phone verification OTP code."""
+    data = request.get_json(silent=True)
+    is_valid, error_msg = validate_resend_otp_input(data)
+    if not is_valid:
+        return jsonify({"error": error_msg}), 400
+
+    identifier = data.get("phone_number") or data.get("phone") or data.get("email")
+    success, dev_otp, error = AuthService.resend_phone_otp(phone_or_email=identifier)
+
+    if error:
+        status_code = 429 if "wait" in error.lower() else 400
+        return jsonify({"error": error}), status_code
+
+    resp = {
+        "message": "If an account exists, a new 6-digit verification code has been dispatched."
+    }
+    if dev_otp:
+        resp["dev_otp"] = dev_otp
+
+    return jsonify(resp), 200
 
 
 @auth_bp.route("/login", methods=["POST"])
@@ -93,13 +158,14 @@ def forgot_password():
     
     Anti-Enumeration:
     Returns identical 200 OK generic response regardless of whether account exists.
+    Never exposes raw reset token in API response.
     """
     data = request.get_json(silent=True)
     is_valid, error_msg = validate_forgot_password_input(data)
     if not is_valid:
         return jsonify({"error": error_msg}), 400
 
-    success, dev_token, error = AuthService.request_password_reset(
+    success, error = AuthService.request_password_reset(
         email=data["email"],
         remote_ip=request.remote_addr,
     )
@@ -107,13 +173,9 @@ def forgot_password():
     if error:
         return jsonify({"error": error}), 429
 
-    response_payload = {
-        "message": "If an account exists for this email, a password reset code has been sent."
-    }
-    if dev_token is not None:
-        response_payload["dev_reset_token"] = dev_token
-
-    return jsonify(response_payload), 200
+    return jsonify({
+        "message": "If an account exists for this email, a password reset link has been sent."
+    }), 200
 
 
 @auth_bp.route("/reset-password", methods=["POST"])

@@ -123,9 +123,6 @@ document.addEventListener('DOMContentLoaded', () => {
       const errorBox = document.getElementById('forgot-error-msg');
       const successBox = document.getElementById('forgot-success-box');
       const successText = document.getElementById('forgot-success-text');
-      const devBanner = document.getElementById('dev-token-banner');
-      const devTokenVal = document.getElementById('dev-token-value');
-      const proceedBtn = document.getElementById('btn-proceed-reset');
 
       if (!email) {
         if (errorBox) {
@@ -149,15 +146,6 @@ document.addEventListener('DOMContentLoaded', () => {
           successBox.style.display = 'block';
           if (res.data && res.data.message) {
             successText.textContent = res.data.message;
-          }
-          if (res.data && res.data.dev_reset_token) {
-            if (devBanner && devTokenVal) {
-              devBanner.style.display = 'block';
-              devTokenVal.textContent = res.data.dev_reset_token;
-            }
-            if (proceedBtn) {
-              proceedBtn.href = `/reset-password?token=${encodeURIComponent(res.data.dev_reset_token)}`;
-            }
           }
         }
         showToast('Password reset instructions processed', 'success');
