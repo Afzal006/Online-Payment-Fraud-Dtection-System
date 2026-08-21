@@ -26,7 +26,7 @@ class User(db.Model):
     role = db.Column(db.String(20), nullable=False, default="USER")  # 'USER' or 'ADMIN'
 
     # Customer Payment Identity & Security (Phase 1 & Phase 3 UPI)
-    phone_number = db.Column(db.String(20), unique=True, nullable=True, index=True)
+    phone_number = db.Column(db.String(20), unique=False, nullable=True, index=True)
     customer_account_id = db.Column(db.String(30), unique=True, nullable=True, index=True)
     primary_upi_id = db.Column(db.String(100), unique=True, nullable=True, index=True)
     account_balance = db.Column(db.Float, nullable=False, default=100000.0)
@@ -262,10 +262,10 @@ class User(db.Model):
 
     def check_and_update_activation(self) -> bool:
         """
-        Activate account when BOTH email and mobile are verified.
+        Activate account when EITHER email OR mobile is verified (or both).
         Returns True if account is active, False otherwise.
         """
-        if self.is_email_verified and (self.is_phone_verified or not self.phone_number):
+        if self.is_email_verified or self.is_phone_verified:
             self.account_status = "ACTIVE"
             self.is_active = True
             return True
@@ -275,8 +275,8 @@ class User(db.Model):
 
     @property
     def is_fully_verified(self) -> bool:
-        """Check if both email and mobile verifications are complete."""
-        return bool(self.is_email_verified and (self.is_phone_verified or not self.phone_number))
+        """Check if verification requirement is satisfied (email or mobile verified)."""
+        return bool(self.is_email_verified or self.is_phone_verified)
 
     @property
     def masked_email(self) -> str:

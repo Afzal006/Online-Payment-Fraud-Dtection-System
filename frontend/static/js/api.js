@@ -125,17 +125,35 @@ class ApiClient {
     });
   }
 
-  async verifyPhoneOtp(phone_or_email, otp_code) {
+  async verifyPhoneOtp(phone_or_email, otp_code, email = null) {
+    const payload = { otp_code };
+    if (email) {
+      payload.email = email;
+    }
+    if (phone_or_email && phone_or_email.includes('@')) {
+      payload.email = phone_or_email;
+    } else if (phone_or_email) {
+      payload.phone_number = phone_or_email;
+    }
     return this.request('/api/auth/verify-phone-otp', {
       method: 'POST',
-      body: JSON.stringify({ phone_number: phone_or_email, otp_code }),
+      body: JSON.stringify(payload),
     });
   }
 
-  async resendPhoneOtp(phone_or_email) {
+  async resendPhoneOtp(phone_or_email, email = null) {
+    const payload = {};
+    if (email) {
+      payload.email = email;
+    }
+    if (phone_or_email && phone_or_email.includes('@')) {
+      payload.email = phone_or_email;
+    } else if (phone_or_email) {
+      payload.phone_number = phone_or_email;
+    }
     return this.request('/api/auth/resend-phone-otp', {
       method: 'POST',
-      body: JSON.stringify({ phone_number: phone_or_email }),
+      body: JSON.stringify(payload),
     });
   }
 
@@ -161,6 +179,20 @@ class ApiClient {
     return this.request('/api/profile', {
       method: 'PUT',
       body: JSON.stringify(payload),
+    });
+  }
+
+  async verifyProfilePhoneOtp(otp_code) {
+    return this.request('/api/profile/phone/verify-otp', {
+      method: 'POST',
+      body: JSON.stringify({ otp_code }),
+    });
+  }
+
+  async resendProfilePhoneOtp() {
+    return this.request('/api/profile/phone/resend-otp', {
+      method: 'POST',
+      body: JSON.stringify({}),
     });
   }
 

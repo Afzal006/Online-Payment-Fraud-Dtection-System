@@ -42,7 +42,9 @@ class AuthService:
         # Check for duplicate email
         existing_user = User.query.filter_by(email=clean_email).first()
         if existing_user:
-            return None, "Email is already registered"
+            if existing_user.account_status == "PENDING_VERIFICATION" and not existing_user.is_email_verified:
+                return None, "Email is already registered and pending verification. Please verify your account or sign in."
+            return None, "Email is already registered. An account with this email address already exists. Please login or reset your password."
 
         # Check and normalize mobile number
         phone_digits = None
@@ -50,12 +52,6 @@ class AuthService:
             is_valid_phone, phone_digits, phone_err = validate_phone_number(str(phone_number))
             if not is_valid_phone:
                 return None, phone_err
-
-            existing_phone = User.query.filter(
-                (User.phone_number == phone_digits) | (User.phone_number == f"+91{phone_digits}")
-            ).first()
-            if existing_phone:
-                return None, "Mobile number is already registered to another account"
 
         user_role = role.upper() if role in ["USER", "ADMIN"] else "USER"
         user = User(
@@ -65,7 +61,7 @@ class AuthService:
             role=user_role,
             account_balance=100000.0 if user_role == "USER" else 0.0,
             is_email_verified=False,
-            is_phone_verified=False if phone_digits else True,
+            is_phone_verified=False,
             is_active=False,
             account_status="PENDING_VERIFICATION",
         )
@@ -311,32 +307,65 @@ class AuthService:
 
     @staticmethod
     def verify_phone_otp(
-        phone_or_email: str,
-        otp_code: str,
+        phone_or_email: Optional[str] = None,
+        otp_code: Optional[str] = None,
+        email: Optional[str] = None,
+        user_id: Optional[int] = None,
     ) -> Tuple[bool, Optional[User], Optional[str]]:
         """
         Verify incoming 6-digit OTP against user's stored hash and activate phone verification.
+        Supports multi-account phone sharing by resolving via user_id or email first.
         """
         import re
-        if not phone_or_email or not otp_code:
-            return False, None, "Identifier and OTP code are required."
+        if not otp_code:
+            return False, None, "Verification OTP code is required."
 
-        clean_id = phone_or_email.strip()
         user = None
-        digits_only = re.sub(r"\D", "", clean_id)
-        if len(digits_only) == 10:
-            user = User.query.filter(
-                (User.phone_number == digits_only) | (User.phone_number == f"+91{digits_only}")
-            ).first()
-        elif len(digits_only) == 12 and digits_only.startswith("91"):
-            user = User.query.filter(
-                (User.phone_number == digits_only[2:]) | (User.phone_number == f"+{digits_only}")
-            ).first()
+        # 1. Resolve by user_id if provided
+        if user_id is not None:
+            user = db.session.get(User, int(user_id))
 
-        if not user:
-            user = User.query.filter(
-                (User.email == clean_id.lower()) | (User.primary_upi_id == clean_id.lower())
-            ).first()
+        # 2. Resolve by email if explicitly provided
+        if not user and email and str(email).strip():
+            user = User.query.filter_by(email=str(email).strip().lower()).first()
+
+        # 3. Resolve by phone_or_email identifier
+        if not user and phone_or_email and str(phone_or_email).strip():
+            clean_id = str(phone_or_email).strip()
+            if "@" in clean_id:
+                user = User.query.filter_by(email=clean_id.lower()).first()
+            elif clean_id.lower().startswith("fs-"):
+                user = User.query.filter_by(customer_account_id=clean_id.upper()).first()
+            else:
+                digits_only = re.sub(r"\D", "", clean_id)
+                target_digits = digits_only[-10:] if len(digits_only) >= 10 else digits_only
+                if len(target_digits) == 10:
+                    # Look up all matching candidate users
+                    candidates = User.query.filter(
+                        User.phone_number.isnot(None),
+                        (User.phone_number == target_digits) |
+                        (User.phone_number == f"+91{target_digits}") |
+                        (User.phone_number == f"91{target_digits}") |
+                        (User.phone_number == f"+91 {target_digits[:5]} {target_digits[5:]}") |
+                        (User.phone_number.like(f"%{target_digits}"))
+                    ).all()
+
+                    # Filter candidates whose active OTP matches or is pending verification
+                    if len(candidates) == 1:
+                        user = candidates[0]
+                    elif len(candidates) > 1:
+                        # Find candidates with unverified phone OTP set
+                        unverified = [c for c in candidates if not c.is_phone_verified and c.phone_otp_hash]
+                        if len(unverified) == 1:
+                            user = unverified[0]
+                        else:
+                            # Try verifying against candidates to find the one matching the OTP
+                            for cand in candidates:
+                                if cand.phone_otp_hash:
+                                    is_match, _ = cand.check_phone_otp(otp_code)
+                                    if is_match:
+                                        user = cand
+                                        break
 
         if not user:
             return False, None, "No account found matching this identifier."
@@ -380,31 +409,48 @@ class AuthService:
 
     @staticmethod
     def resend_phone_otp(
-        phone_or_email: str,
+        phone_or_email: Optional[str] = None,
+        email: Optional[str] = None,
+        user_id: Optional[int] = None,
     ) -> Tuple[bool, Optional[str], Optional[str]]:
         """
         Rate-limited resend of phone verification OTP code.
+        Supports multi-account phone sharing by resolving via user_id or email first.
         """
         import re
-        if not phone_or_email:
-            return False, None, "Identifier is required."
-
-        clean_id = phone_or_email.strip()
         user = None
-        digits_only = re.sub(r"\D", "", clean_id)
-        if len(digits_only) == 10:
-            user = User.query.filter(
-                (User.phone_number == digits_only) | (User.phone_number == f"+91{digits_only}")
-            ).first()
-        elif len(digits_only) == 12 and digits_only.startswith("91"):
-            user = User.query.filter(
-                (User.phone_number == digits_only[2:]) | (User.phone_number == f"+{digits_only}")
-            ).first()
 
-        if not user:
-            user = User.query.filter(
-                (User.email == clean_id.lower()) | (User.primary_upi_id == clean_id.lower())
-            ).first()
+        if user_id is not None:
+            user = db.session.get(User, int(user_id))
+
+        if not user and email and str(email).strip():
+            user = User.query.filter_by(email=str(email).strip().lower()).first()
+
+        if not user and phone_or_email and str(phone_or_email).strip():
+            clean_id = str(phone_or_email).strip()
+            if "@" in clean_id:
+                user = User.query.filter_by(email=clean_id.lower()).first()
+            elif clean_id.lower().startswith("fs-"):
+                user = User.query.filter_by(customer_account_id=clean_id.upper()).first()
+            else:
+                digits_only = re.sub(r"\D", "", clean_id)
+                target_digits = digits_only[-10:] if len(digits_only) >= 10 else digits_only
+                if len(target_digits) == 10:
+                    candidates = User.query.filter(
+                        User.phone_number.isnot(None),
+                        (User.phone_number == target_digits) |
+                        (User.phone_number == f"+91{target_digits}") |
+                        (User.phone_number == f"91{target_digits}") |
+                        (User.phone_number.like(f"%{target_digits}"))
+                    ).all()
+                    if len(candidates) == 1:
+                        user = candidates[0]
+                    elif len(candidates) > 1:
+                        unverified = [c for c in candidates if not c.is_phone_verified]
+                        if len(unverified) == 1:
+                            user = unverified[0]
+                        else:
+                            user = candidates[-1]  # Most recent account
 
         if not user:
             # Anti-enumeration: return true silently if account does not exist
@@ -528,8 +574,8 @@ class AuthService:
             )
             return None, None, "Invalid email or password"
 
-        # Check email verification state
-        if not user.is_email_verified:
+        # Check verification state (Either email or phone verified enables login)
+        if not user.is_email_verified and not user.is_phone_verified:
             AuditService.log_event(
                 event_type="LOGIN_FAILED",
                 actor=clean_email,
@@ -537,22 +583,9 @@ class AuthService:
                 result="DENIED",
                 user_id=user.id,
                 severity="WARN",
-                details={"reason": "Email address is pending verification"},
+                details={"reason": "Account is pending verification (neither email nor mobile verified)"},
             )
-            return None, user, "Please verify your email address before signing in."
-
-        # Check phone verification state
-        if not user.is_phone_verified and user.phone_number:
-            AuditService.log_event(
-                event_type="LOGIN_FAILED",
-                actor=clean_email,
-                action="POST /api/auth/login",
-                result="DENIED",
-                user_id=user.id,
-                severity="WARN",
-                details={"reason": "Mobile number is pending verification"},
-            )
-            return None, user, "Please verify your mobile number before signing in."
+            return None, user, "Please verify your email address or mobile number before signing in."
 
         # Record successful login on device
         if dev_profile:
@@ -597,6 +630,43 @@ class AuthService:
         )
 
         return access_token, user, None
+
+    @staticmethod
+    def find_user_by_phone(phone: str, exclude_user_id: Optional[int] = None) -> Optional[User]:
+        """
+        Find user matching normalized phone number across all database formats.
+        Optionally excludes a specific user ID for update uniqueness validation.
+        """
+        from app.utils.validators import validate_phone_number
+        if not phone or not str(phone).strip():
+            return None
+
+        is_valid, target_digits, _ = validate_phone_number(str(phone))
+        if not is_valid or not target_digits:
+            return None
+
+        # Query potential matches matching standard variations and wildcard suffix
+        query = User.query.filter(
+            User.phone_number.isnot(None),
+            (
+                (User.phone_number == target_digits) |
+                (User.phone_number == f"+91{target_digits}") |
+                (User.phone_number == f"91{target_digits}") |
+                (User.phone_number == f"+91 {target_digits[:5]} {target_digits[5:]}") |
+                (User.phone_number == f"+91 {target_digits}") |
+                (User.phone_number.like(f"%{target_digits}"))
+            )
+        )
+        if exclude_user_id is not None:
+            query = query.filter(User.id != exclude_user_id)
+
+        candidates = query.all()
+        for candidate in candidates:
+            if candidate.phone_number:
+                c_valid, c_digits, _ = validate_phone_number(candidate.phone_number)
+                if c_valid and c_digits == target_digits:
+                    return candidate
+        return None
 
     @staticmethod
     def get_user_by_id(user_id: int) -> Optional[User]:
@@ -896,4 +966,103 @@ class AuthService:
         )
 
         return True, None
+
+    @staticmethod
+    def update_user_profile(
+        user_id: int,
+        name: Optional[str] = None,
+        phone_number: Optional[str] = None,
+    ) -> Tuple[bool, Optional[User], str, int, bool]:
+        """
+        Update authenticated user profile information safely.
+        """
+        from app.utils.validators import validate_phone_number
+        from app.providers.sms_provider import get_sms_provider
+
+        user = db.session.get(User, user_id)
+        if not user:
+            return False, None, "User account not found.", 404, False
+
+        changes_made = False
+        phone_verification_required = False
+
+        if name is not None:
+            clean_name = str(name).strip()
+            if len(clean_name) < 2 or len(clean_name) > 100:
+                return False, user, "Name must be between 2 and 100 characters long.", 400, False
+            if user.name != clean_name:
+                user.name = clean_name
+                changes_made = True
+
+        if phone_number is not None:
+            raw_phone = str(phone_number).strip()
+            if not raw_phone:
+                # User is clearing their phone number
+                if user.phone_number is not None:
+                    user.phone_number = None
+                    user.is_phone_verified = False
+                    user.phone_verified_at = None
+                    user.phone_otp_hash = None
+                    user.phone_otp_expires_at = None
+                    changes_made = True
+            else:
+                is_valid, phone_digits, phone_err = validate_phone_number(raw_phone)
+                if not is_valid:
+                    return False, user, phone_err or "Invalid mobile number.", 400, False
+
+                # Normalize current user's existing phone number if present
+                curr_valid, curr_digits, _ = validate_phone_number(user.phone_number) if user.phone_number else (False, None, None)
+
+                if curr_valid and curr_digits == phone_digits:
+                    # User is submitting their OWN existing phone number!
+                    # Normalize formatting in DB if it differed, but do NOT trigger OTP and do NOT revoke verification!
+                    if user.phone_number != phone_digits:
+                        user.phone_number = phone_digits
+                        changes_made = True
+                else:
+                    # Genuinely changed or newly added phone number (phone reuse allowed)
+                    user.phone_number = phone_digits
+                    user.is_phone_verified = False
+                    user.phone_verified_at = None
+                    changes_made = True
+                    phone_verification_required = True
+
+                    # Generate and dispatch 6-digit SMS OTP challenge
+                    raw_phone_otp = f"{secrets.randbelow(900000) + 100000}"
+                    user.set_phone_otp(raw_phone_otp, expiry_seconds=300)
+
+                    sms_provider = get_sms_provider()
+                    sms_ok, sms_err = sms_provider.send_otp(
+                        phone_number=f"+91{phone_digits}",
+                        otp_code=raw_phone_otp,
+                        purpose="PHONE_UPDATE"
+                    )
+                    if not sms_ok and current_app:
+                        current_app.logger.warning("Phone update OTP dispatch returned: %s", sms_err)
+
+        if changes_made:
+            user.check_and_update_activation()
+            db.session.commit()
+
+            AuditService.log_event(
+                event_type="PROFILE_UPDATED",
+                actor=user.email,
+                action="PUT /api/profile",
+                result="SUCCESS",
+                user_id=user.id,
+                target_resource=f"User:{user.id}",
+                severity="INFO",
+                details={
+                    "name": user.name,
+                    "phone_number": user.phone_number,
+                    "is_phone_verified": user.is_phone_verified,
+                    "phone_verification_required": phone_verification_required,
+                },
+            )
+
+        msg = "Profile updated successfully."
+        if phone_verification_required:
+            msg = f"Profile updated. A 6-digit verification code was sent to your mobile number (+91 {user.phone_number})."
+
+        return True, user, msg, 200, phone_verification_required
 

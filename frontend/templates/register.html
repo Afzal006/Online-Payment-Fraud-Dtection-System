@@ -31,11 +31,12 @@
         </div>
 
         <div style="margin-bottom: 1.15rem;">
-          <label for="reg-phone" class="form-label">Mobile Number (10 digits)</label>
+          <label for="reg-phone" class="form-label">Mobile Number</label>
           <div style="display: flex; gap: 8px;">
             <span style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: var(--radius-md); padding: 0.65rem 0.9rem; color: var(--text-muted); font-weight: 600; font-size: 0.875rem;">+91</span>
-            <input type="tel" id="reg-phone" class="form-control-custom" placeholder="9876543210" pattern="[6-9][0-9]{9}" maxlength="10" autocomplete="tel">
+            <input type="tel" id="reg-phone" class="form-control-custom" placeholder="98765 43210" maxlength="15" autocomplete="tel-national">
           </div>
+          <small style="color: var(--text-muted); font-size: 0.75rem; display: block; margin-top: 0.25rem;">Mobile number is required for verification. You can freely edit, replace, or delete.</small>
         </div>
 
         <div style="margin-bottom: 1.15rem;">
@@ -63,7 +64,7 @@
       <div style="text-align: center; margin-bottom: 1.5rem;">
         <div class="brand-icon" style="width: 48px; height: 48px; font-size: 1.5rem; margin: 0 auto 0.75rem auto;">🔐</div>
         <h2 style="font-size: 1.45rem; color: #fff; margin-bottom: 0.25rem;">Verify Your Account</h2>
-        <p style="color: var(--text-muted); font-size: 0.825rem;">Complete email and mobile verification to activate your FraudShield ID</p>
+        <p style="color: var(--text-muted); font-size: 0.825rem;">Verify via Email OTP (Recommended) or Mobile SMS OTP to activate your account</p>
       </div>
 
       <!-- Verification Alert Box -->
@@ -75,7 +76,7 @@
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
           <div>
             <div style="font-weight: 600; font-size: 0.95rem; color: #f8fafc; display: flex; align-items: center; gap: 6px;">
-              <span>✉️ Email Verification</span>
+              <span>✉️ Email Verification (Recommended)</span>
             </div>
             <div id="verify-email-display" style="font-size: 0.8rem; color: #94a3b8; margin-top: 2px;">user@example.com</div>
           </div>
@@ -87,7 +88,7 @@
           <div style="display: flex; gap: 8px; margin-bottom: 0.75rem;">
             <input type="text" id="input-email-otp" class="form-control-custom" placeholder="123456" maxlength="6" pattern="[0-9]{6}" style="letter-spacing: 4px; font-size: 1.1rem; text-align: center; font-family: monospace; font-weight: 700;">
             <button type="button" id="btn-verify-email" class="btn-primary-custom" style="padding: 0.6rem 1.25rem; white-space: nowrap;">
-              <span>Verify</span>
+              <span>Verify Email</span>
             </button>
           </div>
           <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.775rem;">
@@ -97,7 +98,7 @@
         </div>
 
         <div id="section-email-completed" style="display: none; color: #34d399; font-size: 0.85rem; font-weight: 600; display: flex; align-items: center; gap: 6px;">
-          <span>✓ Email ownership verified successfully.</span>
+          <span>✓ Email verified successfully.</span>
         </div>
       </div>
 
@@ -106,7 +107,7 @@
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
           <div>
             <div style="font-weight: 600; font-size: 0.95rem; color: #f8fafc; display: flex; align-items: center; gap: 6px;">
-              <span>📱 Mobile Verification</span>
+              <span>📱 Mobile Verification (Alternative)</span>
             </div>
             <div id="verify-phone-display" style="font-size: 0.8rem; color: #94a3b8; margin-top: 2px;">+91 ******1234</div>
           </div>
@@ -118,7 +119,7 @@
           <div style="display: flex; gap: 8px; margin-bottom: 0.75rem;">
             <input type="text" id="input-phone-otp" class="form-control-custom" placeholder="123456" maxlength="6" pattern="[0-9]{6}" style="letter-spacing: 4px; font-size: 1.1rem; text-align: center; font-family: monospace; font-weight: 700;">
             <button type="button" id="btn-verify-phone" class="btn-primary-custom" style="padding: 0.6rem 1.25rem; white-space: nowrap;">
-              <span>Verify</span>
+              <span>Verify Mobile</span>
             </button>
           </div>
           <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.775rem;">
@@ -136,7 +137,7 @@
       <div id="section-activation-complete" style="display: none; text-align: center; padding: 1.25rem; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); border-radius: var(--radius-lg); margin-bottom: 1.25rem;">
         <div style="font-size: 2rem; margin-bottom: 0.5rem;">🎉</div>
         <h3 style="color: #34d399; font-size: 1.15rem; margin-bottom: 0.35rem;">Account Activated!</h3>
-        <p style="color: #cbd5e1; font-size: 0.85rem; margin-bottom: 1rem;">Both your email and mobile number are fully verified. You can now sign in to your dashboard.</p>
+        <p style="color: #cbd5e1; font-size: 0.85rem; margin-bottom: 1rem;">Your account is now verified and active. You can proceed to your AI-protected payment dashboard.</p>
         <a href="/login?verified=1" class="btn-primary-custom" style="display: inline-block; width: 100%; text-align: center; text-decoration: none;">
           <span>Proceed to Sign In</span>
         </a>

@@ -88,9 +88,6 @@
         <button type="button" class="tab-btn" id="tab-mobile" onclick="switchPaymentTab('mobile')" style="padding: 0.6rem 1rem; background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-muted); font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.4rem;">
           📱 Mobile Number
         </button>
-        <button type="button" class="tab-btn" id="tab-saved" onclick="switchPaymentTab('saved')" style="padding: 0.6rem 1rem; background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-muted); font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.4rem;">
-          👥 Saved Beneficiaries
-        </button>
       </div>
 
       <!-- Tab Content 1: Real Camera QR Code Scanner -->
@@ -177,17 +174,6 @@
         </div>
         <div style="font-size: 0.75rem; color: var(--text-dim); margin-top: 0.4rem;">
           Resolves registered user accounts linked to this phone number in the FraudShield ecosystem.
-        </div>
-      </div>
-
-      <!-- Tab Content 4: Saved Beneficiaries -->
-      <div id="tab-content-saved" class="tab-content" style="display: none;">
-        <label for="select-saved-beneficiary" class="form-label">Select from Saved Beneficiaries</label>
-        <select id="select-saved-beneficiary" class="form-select-custom" onchange="handleSavedBeneficiaryChange()">
-          <option value="">-- Choose Beneficiary --</option>
-        </select>
-        <div style="font-size: 0.75rem; color: var(--text-dim); margin-top: 0.4rem;">
-          Beneficiaries are monitored under 24-Hour Cooling Periods and adaptive trust scoring.
         </div>
       </div>
     </div>

@@ -103,7 +103,7 @@ class RiskSignalService:
                 "weight": 15,
             })
 
-        # 5. HIGH_VALUE_TRANSFER (HIGH)
+        # 5. HIGH_VALUE_TRANSFER / HIGH_VALUE_PAYMENT (HIGH)
         if amount > cls.AMOUNT_SIGNIFICANT_MAX:
             if tx_type in ["TRANSFER", "CASH_OUT"]:
                 signals.append({
@@ -112,12 +112,26 @@ class RiskSignalService:
                     "message": f"High-value transaction exceeding ₹1,00,000 threshold (₹{amount:,.2f}).",
                     "weight": 30,
                 })
+            elif tx_type in ["PAYMENT", "DEBIT"]:
+                signals.append({
+                    "code": "HIGH_VALUE_PAYMENT",
+                    "severity": "HIGH",
+                    "message": f"High-value merchant payment exceeding ₹1,00,000 threshold (₹{amount:,.2f}).",
+                    "weight": 25,
+                })
         elif amount > cls.AMOUNT_MODERATE_MAX:
             if tx_type in ["TRANSFER", "CASH_OUT"]:
                 signals.append({
                     "code": "MODERATE_VALUE_TRANSFER",
                     "severity": "MEDIUM",
                     "message": f"Significant transaction value exceeding ₹50,000 (₹{amount:,.2f}).",
+                    "weight": 15,
+                })
+            elif tx_type in ["PAYMENT", "DEBIT"]:
+                signals.append({
+                    "code": "MODERATE_VALUE_PAYMENT",
+                    "severity": "MEDIUM",
+                    "message": f"Significant merchant payment exceeding ₹50,000 threshold (₹{amount:,.2f}).",
                     "weight": 15,
                 })
 

@@ -31,12 +31,12 @@ def test_idempotent_database_seeding(app):
     # First seed
     seed_database(app)
     assert User.query.filter_by(email="user@example.com").count() == 1
-    assert User.query.filter_by(email="admin@example.com").count() == 1
+    assert User.query.filter_by(role="ADMIN").count() == 1
 
     # Second seed (idempotent check)
     seed_database(app)
     assert User.query.filter_by(email="user@example.com").count() == 1
-    assert User.query.filter_by(email="admin@example.com").count() == 1
+    assert User.query.filter_by(role="ADMIN").count() == 1
 
 
 def test_duplicate_email_rejected(app):

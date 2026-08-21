@@ -46,8 +46,8 @@ class DevelopmentSmsProvider(SmsProvider):
         clean_phone = phone_number.strip()
         DevelopmentSmsProvider._sent_otps[clean_phone] = otp_code
         logger.info(
-            "[DEVELOPMENT SMS GATEWAY] Sent OTP '%s' to '%s' (Purpose: %s)",
-            otp_code, clean_phone, purpose
+            "[DEVELOPMENT SMS GATEWAY] Queued SMS OTP for '%s' (Purpose: %s)",
+            clean_phone, purpose
         )
         return True, None
 
@@ -115,37 +115,88 @@ class Msg91SmsProvider(SmsProvider):
     """
 
     def __init__(self, auth_key: Optional[str] = None, template_id: Optional[str] = None, sender_id: Optional[str] = None):
+        if not auth_key and current_app:
+            auth_key = current_app.config.get("MSG91_AUTH_KEY")
+        if not template_id and current_app:
+            template_id = current_app.config.get("MSG91_TEMPLATE_ID")
+        if not sender_id and current_app:
+            sender_id = current_app.config.get("MSG91_SENDER_ID")
+
         self.auth_key = auth_key or os.getenv("MSG91_AUTH_KEY")
         self.template_id = template_id or os.getenv("MSG91_TEMPLATE_ID")
         self.sender_id = sender_id or os.getenv("MSG91_SENDER_ID", "FRDSHD")
 
     def send_otp(self, phone_number: str, otp_code: str, purpose: str = "REGISTRATION") -> Tuple[bool, Optional[str]]:
         if not self.auth_key or not self.template_id:
-            logger.error("MSG91 SMS credentials incomplete in environment configuration.")
+            logger.error("MSG91 SMS credentials incomplete in environment configuration (missing MSG91_AUTH_KEY or MSG91_TEMPLATE_ID).")
             return False, "SMS gateway credentials unconfigured in production environment."
 
         try:
             import urllib.request
+            import urllib.error
             import json
+            import re
 
-            # MSG91 expects phone without leading '+'
-            clean_phone = phone_number.replace("+", "").strip()
-            url = "https://api.msg91.com/api/v5/otp"
+            # Normalize Indian phone number to format '91XXXXXXXXXX' without '+'
+            digits = re.sub(r"\D", "", phone_number)
+            if digits.startswith("91") and len(digits) == 12:
+                clean_phone = digits
+            elif len(digits) == 10:
+                clean_phone = f"91{digits}"
+            elif digits.startswith("0") and len(digits) == 11:
+                clean_phone = f"91{digits[1:]}"
+            else:
+                clean_phone = digits
+
+            masked_phone = f"+91******{clean_phone[-4:]}" if len(clean_phone) >= 4 else "+91******"
+            logger.info("[SMS GATEWAY] Dispatching OTP via MSG91 to '%s' (Purpose: %s)", masked_phone, purpose)
+
+            # Modern MSG91 OTP v5 endpoint
+            url = "https://control.msg91.com/api/v5/otp"
             headers = {
-                "authkey": self.auth_key,
-                "content-type": "application/json",
+                "authkey": self.auth_key.strip(),
+                "Content-Type": "application/json",
+                "Accept": "application/json",
             }
             body = {
-                "template_id": self.template_id,
+                "template_id": self.template_id.strip(),
                 "mobile": clean_phone,
-                "otp": otp_code,
-                "sender": self.sender_id,
+                "otp": str(otp_code).strip(),
+                "otp_expiry": 5,
             }
-            req = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"), headers=headers, method="POST")
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                if 200 <= resp.status < 300:
-                    return True, None
-                return False, f"MSG91 delivery returned status {resp.status}."
+            if self.sender_id:
+                body["sender"] = self.sender_id.strip()
+
+            req_data = json.dumps(body).encode("utf-8")
+            req = urllib.request.Request(url, data=req_data, headers=headers, method="POST")
+
+            try:
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    resp_status = resp.status
+                    raw_body = resp.read().decode("utf-8", errors="replace")
+            except urllib.error.HTTPError as http_err:
+                resp_status = http_err.code
+                raw_body = http_err.read().decode("utf-8", errors="replace")
+            except Exception as net_err:
+                logger.error("[SMS GATEWAY] MSG91 network connection error: %s", str(net_err))
+                return False, f"Failed to connect to MSG91 SMS gateway: {str(net_err)}"
+
+            # Parse JSON response
+            try:
+                resp_json = json.loads(raw_body)
+            except Exception:
+                resp_json = {}
+
+            resp_type = str(resp_json.get("type", "")).lower()
+            resp_msg = str(resp_json.get("message", raw_body or ""))
+
+            if 200 <= resp_status < 300 and resp_type != "error":
+                logger.info("[SMS GATEWAY] MSG91 successfully accepted OTP dispatch for '%s' (HTTP %d)", masked_phone, resp_status)
+                return True, None
+            else:
+                logger.error("[SMS GATEWAY] MSG91 rejected OTP dispatch for '%s' (HTTP %d, Error: %s)", masked_phone, resp_status, resp_msg)
+                return False, f"MSG91 delivery rejected ({resp_status}): {resp_msg}"
+
         except Exception as e:
             logger.error("MSG91 SMS dispatch exception: %s", str(e))
             return False, f"Failed to deliver SMS via MSG91: {str(e)}"

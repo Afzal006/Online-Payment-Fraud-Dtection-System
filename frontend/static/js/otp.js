@@ -48,14 +48,10 @@ class OtpModal {
     }
     if (this.errorBox) this.errorBox.style.display = 'none';
 
-    // Show simulated dev helper if provided
+    // Show clean email notice only (NEVER render OTP code in the browser)
     if (this.devHelperBox) {
-      if (devOtp) {
-        this.devHelperBox.innerHTML = `<strong>Simulated SMS Delivery:</strong> Use code <code style="color: #60A5FA; font-size: 1.1rem; letter-spacing: 2px;">${devOtp}</code>`;
-        this.devHelperBox.style.display = 'block';
-      } else {
-        this.devHelperBox.style.display = 'none';
-      }
+      this.devHelperBox.innerHTML = '📧 Verification code sent to your registered email.';
+      this.devHelperBox.style.display = 'block';
     }
 
     this.startTimer(180);
@@ -148,9 +144,8 @@ class OtpModal {
     this.resendBtn.textContent = 'Resend Code';
 
     if (res && res.ok) {
-      showToast('New OTP challenge generated and sent.', 'success');
-      const devOtp = res.data._dev_simulated_otp || null;
-      this.open(this.currentTxId, devOtp, this.onSuccessCallback);
+      showToast('New verification code sent to your registered email.', 'success');
+      this.open(this.currentTxId, null, this.onSuccessCallback);
     } else {
       showToast((res && res.data && res.data.error) || 'Failed to resend OTP.', 'error');
     }

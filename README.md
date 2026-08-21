@@ -1,163 +1,220 @@
-# AI-Powered Real-Time Online Payment Fraud Detection and Explainable Risk Assessment System
+# FraudShield AI — Online Payment Fraud Detection & Explainable Risk Assessment System
 
-> Machine Learning + Explainable AI (SHAP) + Risk Scoring + Adaptive Verification
+> **Enterprise-Grade AI/ML FinTech Defense Platform**  
+> Real-Time Machine Learning Inference • Dual-Perspective Explainable AI (SHAP) • Adaptive Step-Up Multi-Factor Authentication • Multi-Tier Risk Engine • SOC Analyst Dashboard
 
----
-
-## 1. Project Overview & Problem Statement
-
-Online payment systems (such as UPI, credit cards, internet banking, and mobile wallets) are increasingly targeted by fraudulent actors. Traditional static rule-based fraud detection fails against evolving fraud mechanisms and often produces excessive false positives.
-
-This system provides an end-to-end, inspectable academic prototype that:
-1. **Predicts fraud in real-time** using machine learning trained on the PaySim online payment dataset.
-2. **Generates a normalized 0–100 risk score** with three decision tiers (`LOW`, `MEDIUM`, `HIGH`).
-3. **Explains predictions using SHAP (Explainable AI)** to highlight which features pushed the risk up or down.
-4. **Applies adaptive security actions**: Instant approval for low risk, simulated OTP challenge for medium risk, and OTP + security alert + admin review for high risk.
-5. **Provides interactive dashboards**: User dashboard for payment simulation and transaction tracking; Admin dashboard for fraud analytics, model metrics, and SHAP investigation.
+[![Python](https://img.shields.io/badge/Python-3.11%2B%20%7C%203.14-blue.svg)](https://www.python.org/)
+[![Flask](https://img.shields.io/badge/Framework-Flask%203.1-black.svg)](https://flask.palletsprojects.com/)
+[![Machine Learning](https://img.shields.io/badge/ML-Scikit--Learn%20%7C%20XGBoost-orange.svg)](https://scikit-learn.org/)
+[![Explainability](https://img.shields.io/badge/XAI-SHAP%20TreeExplainer-red.svg)](https://shap.readthedocs.io/)
+[![Testing](https://img.shields.io/badge/Tests-484%20Passed%20%7C%20100%25-brightgreen.svg)](https://docs.pytest.org/)
+[![Security](https://img.shields.io/badge/Security-PBKDF2%2FArgon2%20%7C%20JWT%20%7C%20SMTP%20TLS-success.svg)](https://owasp.org/)
 
 ---
 
-## 2. System Architecture
+## 1. Executive Summary & Problem Statement
+
+Online digital payment ecosystems (UPI, P2P Transfers, Merchant QR Payments, Cards, and Net Banking) process billions of financial transactions daily. Traditional static rule-based fraud detection systems face critical limitations:
+* **High False Positive Rates**: Legitimate customer transactions are erroneously blocked, causing severe user friction.
+* **Inability to Adapt**: Hardcoded heuristics cannot detect novel, zero-day fraud patterns or complex account-draining schemes.
+* **Black-Box Opacity**: Many modern neural networks lack actionable interpretability, leaving customers confused and fraud analysts unable to justify transaction holds.
+
+**FraudShield AI** solves these challenges by combining **Machine Learning classification trained on financial payment datasets**, **dynamic behavioral risk scoring (0–100)**, **dual-perspective SHAP feature explanations**, and **adaptive step-up email OTP authentication**.
+
+---
+
+## 2. Key Features & Capabilities
+
+### 🛡️ Core Fraud & Risk Engine
+* **Hybrid Risk Assessment**: Combines machine learning probability (`0.0 – 1.0`), behavioral signals (e.g. account draining ratio, destination velocity, velocity spikes), and transaction context into a standardized `0–100` risk score.
+* **Multi-Tier Decision Policies**:
+  * **LOW (`0 – 29`)**: Instantly approved with zero user friction.
+  * **MEDIUM (`30 – 59`)**: Transaction held in pending state; step-up Email OTP challenge generated; zero balance deducted until verified.
+  * **HIGH (`60 – 84`)**: High-risk trigger; step-up Email OTP required + automated security alert generated for audit.
+  * **CRITICAL (`85 – 100`)**: Blocked from automatic clearance; routed to Security Operations Center (SOC) review.
+* **Dual-View Explainable AI (SHAP)**:
+  * **Customer-Facing View**: Jargon-free, natural-language explanation of risk factors (e.g., unusual amount compared to average balance, unfamiliar recipient).
+  * **Analyst/SOC Technical View**: Interactive SHAP waterfall chart displaying exact feature values and mathematical contributions ($E[f(x)]$ vs $f(x)$).
+
+### ⚡ UPI Payment Simulation & Banking Workflows
+* **Simulated Instant UPI Transfer**:
+  * Scan QR Code (auto-parses standard UPI payload: `upi://pay?pa=...&am=...`).
+  * UPI ID / VPA transfers (`recipient@fraudshield` or external VPAs).
+  * Mobile Number recipient lookup (`+91 98765 XXXXX`).
+* **Multi-Factor Payment Security**:
+  * Mandatory 4–6 digit numeric Payment PIN authorization.
+  * Account lockout protection after 3 consecutive failed PIN attempts.
+  * Atomic balance updates wrapped in ACID database transactions with double-debit prevention.
+
+### 🔐 Authentication & Session Security
+* **JWT Token-Based API Security**: Secure 24-hour access tokens with strict Role-Based Access Control (`USER` vs `ADMIN`).
+* **Real Email Ownership Verification**: 6-digit registration verification delivered via RFC-compliant SMTP.
+* **Secure Password Recovery**: Cryptographically random single-use reset tokens with SHA-256 database hashing and 15-minute expiration.
+* **Protected Public Interface**: Public sign-in surfaces contain zero exposed credentials or demo autofill shortcuts.
+
+### 📊 Security Operations Center (SOC) Dashboard
+* **Real-Time SOC Case Management**: Alert lifecycle tracking (`PENDING`, `INVESTIGATING`, `CONFIRMED_FRAUD`, `FALSE_POSITIVE`, `RESOLVED`).
+* **KPI Metrics & Risk Trends**: Visual charts for fraud rates, risk distribution, transaction volume, and model precision/recall.
+* **Audit Trail**: Complete immutable event logging capturing actor IP, user agent, timestamp, device fingerprint, and decision rationale.
+
+---
+
+## 3. System Architecture
 
 ```
-User / Admin
-    │
-    ▼
-Frontend (HTML5, CSS3, Bootstrap 5, JavaScript, Chart.js)
-    │  HTTP / REST JSON
-    ▼
-Flask REST API Backend (Authentication, Transactions, Predictions, OTP, Alerts, Analytics)
-    │
-    ├─► Data Preprocessing & Feature Engineering Pipeline (Pandas, NumPy, Scikit-learn)
-    ├─► ML Inference Engine (Random Forest / XGBoost / Baselines)
-    ├─► Explainable AI Engine (SHAP TreeExplainer)
-    ├─► Risk Scoring & Decision Engine (0-100 Score -> LOW / MEDIUM / HIGH)
-    └─► MySQL Database (Users, Transactions, Predictions, Explanations, OTP, Alerts, Audit)
+                                  ┌───────────────────────────────────┐
+                                  │      Client (Browser / PWA)       │
+                                  └─────────────────┬─────────────────┘
+                                                    │ HTTPS / JSON REST
+                                                    ▼
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                       Flask REST Backend API                                           │
+│                                                                                                        │
+│  ┌──────────────────────┐   ┌──────────────────────┐   ┌──────────────────────┐   ┌─────────────────┐  │
+│  │    Authentication    │   │  Transaction Engine  │   │     Risk Engine      │   │  SOC Dashboard  │  │
+│  │ (JWT, Passwords, PIN)│   │ (UPI, QR, Balances)  │   │(Rules + ML + Policy) │   │ (Alerts, Audit) │  │
+│  └──────────┬───────────┘   └──────────┬───────────┘   └──────────┬───────────┘   └────────┬────────┘  │
+└─────────────┼──────────────────────────┼──────────────────────────┼────────────────────────┼───────────┘
+              │                          │                          │                        │
+              ▼                          ▼                          ▼                        ▼
+┌───────────────────────────┐  ┌───────────────────┐  ┌──────────────────────────┐  ┌───────────────────┐
+│     Email / SMTP Layer    │  │   SQLite / MySQL  │  │    Machine Learning      │  │  Explainable AI   │
+│(TLS OTP, Password Resets) │  │(ACID Data Store)  │  │ (Tuned Random Forest/XGB)│  │ (SHAP Explainer)  │
+└───────────────────────────┘  └───────────────────┘  └──────────────────────────┘  └───────────────────┘
 ```
 
 ---
 
-## 3. Project Structure
+## 4. Technology Stack
+
+* **Backend Engine**: Python 3.11+ / 3.14, Flask, Flask-SQLAlchemy, Flask-Migrate, Flask-JWT-Extended, Flask-CORS.
+* **Machine Learning**: Scikit-learn, XGBoost, Pandas, NumPy, Joblib.
+* **Explainable AI**: SHAP (`TreeExplainer`).
+* **Frontend Interface**: Semantic HTML5, Vanilla CSS3 (Glassmorphism design tokens), Vanilla Modern JavaScript (ES6+), Chart.js.
+* **Database**: SQLite (local development & testing) / MySQL compatible.
+* **Email & Telephony**: RFC-5322 SMTP Provider with TLS/SSL encryption & MSG91 SMS gateway integration.
+* **Testing & QA**: Pytest, Pytest-cov (484 automated unit, integration, and security tests).
+
+---
+
+## 5. Repository Structure
 
 ```
-online-payment-fraud-detection/
+Online-Payment-Fraud-Dtection-System/
 ├── app/
-│   ├── __init__.py                 # Application factory & extension registration
-│   ├── config.py                   # Environment configuration & risk thresholds
-│   ├── routes/                     # REST API & Web blueprints
-│   │   ├── auth.py
-│   │   ├── transactions.py
-│   │   ├── predictions.py
-│   │   ├── otp.py
-│   │   ├── alerts.py
-│   │   └── admin.py
-│   ├── services/                   # Business & ML logic
-│   │   ├── fraud_service.py
-│   │   ├── risk_service.py
-│   │   ├── shap_service.py
-│   │   ├── otp_service.py
-│   │   └── analytics_service.py
-│   ├── models/                     # SQLAlchemy models
-│   │   ├── user.py
-│   │   ├── transaction.py
-│   │   ├── prediction.py
-│   │   ├── alert.py
-│   │   └── audit.py
-│   └── utils/                      # Validators & security helpers
-│       ├── validators.py
-│       └── security.py
-├── ml/
-│   ├── data_audit.py               # Dataset audit & EDA
-│   ├── preprocessing.py            # Feature transformation & cleaning
-│   ├── feature_engineering.py      # Engineered domain features
-│   ├── train.py                    # Candidate model training & comparison
-│   ├── evaluate.py                 # Precision, Recall, F1, ROC-AUC, PR-AUC
-│   ├── tune.py                     # Hyperparameter tuning
-│   ├── explain.py                  # SHAP explanation generation
-│   ├── predict.py                  # Standalone inference runner
-│   ├── artifacts/                  # Serialized model & preprocessor artifacts
-│   └── notebooks/                  # EDA & experiment notebooks
+│   ├── config.py                     # Configuration loader & risk threshold definitions
+│   ├── extensions.py                 # SQLAlchemy, Migrate, JWT, CORS instances
+│   ├── models/                       # Database models (User, Transaction, Alert, OTP, etc.)
+│   ├── providers/                    # SMTP email & SMS providers
+│   ├── routes/                       # REST API blueprints (Auth, Payments, Admin, SOC)
+│   ├── services/                     # Business logic, Risk Signal engine, SHAP service
+│   └── utils/                        # Security middleware, rate limiters, structured logging
+├── database/
+│   ├── init_db.py                    # Database table initialization
+│   └── seed_db.py                    # Idempotent demo and account seeding
+├── docs/                             # Architecture diagrams, specifications, live runbooks
 ├── frontend/
-│   ├── templates/                  # Jinja2 HTML templates
-│   └── static/                     # CSS, JavaScript, and images
-├── dataset/                        # PaySim dataset files
-├── database/                       # SQL schema and seed scripts
-├── tests/                          # Automated test suite (pytest)
-├── docs/                           # Documentation (SRS, HLD, DFD, ERD)
-├── .env.example                    # Environment variable template
-├── .gitignore                      # Git ignore patterns
-├── requirements.txt                # Python dependencies
-├── run.py                          # Flask entrypoint
-└── README.md                       # Master documentation
+│   ├── static/                       # Custom CSS design system, modular JS controllers
+│   └── templates/                    # Jinja2 HTML templates (Dashboard, Payment, Login, etc.)
+├── ml/
+│   ├── artifacts/                    # Serialized model, preprocessor, and feature names
+│   ├── feature_engineering.py        # Financial domain feature transformations
+│   ├── preprocessing.py              # Data cleaning and scaling pipeline
+│   ├── train.py                      # Candidate model training & evaluation
+│   └── explain.py                    # SHAP explainer generator
+├── tests/                            # 484 comprehensive pytest test suites
+├── .env.example                      # Template for environment configuration
+├── .gitignore                        # Standard rules ignoring secrets, caches, and temp files
+├── requirements.txt                  # Python dependencies
+├── run.py                            # Flask application entrypoint
+└── README.md                         # Project documentation
 ```
 
 ---
 
-## 4. Feature Specification & Engineering
+## 6. Installation & Local Setup (Windows / Linux / macOS)
 
-The model uses the PaySim dataset with exact engineered features:
+### Prerequisites
+* **Python 3.11+** installed and added to `PATH`.
+* **Git** installed on your machine.
 
-| Feature | Type | Source / Formula | Meaning |
-|---|---|---|---|
-| `type` | Categorical | Raw (`CASH_OUT`, `TRANSFER`, `PAYMENT`, `CASH_IN`, `DEBIT`) | Payment mechanism |
-| `amount` | Float | Raw | Transaction amount |
-| `oldbalanceOrg` | Float | Raw | Sender initial balance |
-| `newbalanceOrig` | Float | Raw | Sender balance after transaction |
-| `oldbalanceDest` | Float | Raw | Receiver initial balance |
-| `newbalanceDest` | Float | Raw | Receiver balance after transaction |
-| `errorBalanceOrig` | Float | `oldbalanceOrg - amount - newbalanceOrig` | Sender balance discrepancy |
-| `errorBalanceDest` | Float | `oldbalanceDest + amount - newbalanceDest` | Receiver balance discrepancy |
-| `hourOfDay` | Integer | `step % 24` | 24-hour cycle time bucket |
-| `isMerchantDest` | Binary | `1 if nameDest starts with "M" else 0` | Merchant vs customer destination |
-| `amountToBalanceRatio` | Float | `amount / (oldbalanceOrg + 1)` | Account draining ratio |
+### Step 1: Clone the Repository
+```bash
+git clone https://github.com/Afzal006/Online-Payment-Fraud-Dtection-System.git
+cd Online-Payment-Fraud-Dtection-System
+```
+
+### Step 2: Create and Activate Virtual Environment
+```bash
+# Windows (PowerShell)
+py -m venv venv
+.\venv\Scripts\Activate.ps1
+
+# Linux / macOS
+python3 -m venv venv
+source venv/bin/activate
+```
+
+### Step 3: Install Dependencies
+```bash
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+### Step 4: Configure Environment Variables
+Copy `.env.example` to `.env` and adjust settings as required:
+```bash
+# Windows (PowerShell)
+Copy-Item .env.example .env
+
+# Linux / macOS
+cp .env.example .env
+```
+
+*For live email OTP delivery, set `MAIL_PROVIDER=smtp`, `MAIL_SERVER=smtp.gmail.com`, `MAIL_PORT=587`, `MAIL_USE_TLS=true`, `MAIL_USERNAME=your-email@gmail.com`, and `MAIL_PASSWORD=your-app-password`.*
+
+### Step 5: Initialize the Database
+```bash
+py -c "from app import create_app; from database.init_db import init_database; init_database(create_app())"
+```
 
 ---
 
-## 5. Risk Scoring & Decision Policy
+## 7. Running the Application
 
-- **Risk Score Formula**: `risk_score = round(fraud_probability * 100)`
-- **Decision Engine Matrix**:
-  - `0 – 30` (**LOW**): Transaction approved immediately.
-  - `31 – 70` (**MEDIUM**): Adaptive challenge triggered; simulated OTP verification required.
-  - `71 – 100` (**HIGH**): High-risk flag; simulated OTP verification + security alert generated + flagged for Admin review.
+Start the local Flask development server:
+```bash
+py run.py
+```
+
+* The application will start at **`http://127.0.0.1:5000`**.
+* Open **`http://127.0.0.1:5000/login`** in any modern web browser.
 
 ---
 
-## 6. Installation & Quickstart
+## 8. Running the Automated Test Suite
+
+FraudShield AI contains **484 automated unit, integration, and security tests** covering authentication, OTP generation, balance protection, ML inference, and SOC case workflows:
 
 ```bash
-# 1. Clone repository and navigate to folder
-cd "Online Payment fraud detection system"
+# Run all tests
+py -m pytest -v
 
-# 2. Install dependencies
-pip install -r requirements.txt
-
-# 3. Configure environment
-cp .env.example .env
-
-# 4. Run tests
-pytest
-
-# 5. Run Flask application
-python run.py
+# Run targeted authentication & risk tests
+py -m pytest tests/test_auth.py tests/test_risk_engine.py -v
 ```
 
 ---
 
-## 7. Build Sequence
+## 9. Security & Governance
 
-- **Phase 0**: Project setup & scaffold *(Completed)*
-- **Phase 1**: Dataset audit & EDA
-- **Phase 2**: ML baseline modeling (Logistic Regression & Decision Tree)
-- **Phase 3**: Strong models (Random Forest & XGBoost) + Comparison
-- **Phase 4**: Model packaging & pipeline persistence
-- **Phase 5**: Explainable AI (SHAP TreeExplainer integration)
-- **Phase 6**: Flask application factory & database connection
-- **Phase 7**: Prediction & Risk Scoring API
-- **Phase 8**: MySQL schema & persistence models
-- **Phase 9**: Adaptive Security Flow (OTP, Alerts & Audit logs)
-- **Phase 10**: User Frontend (Payment, History, Dashboard)
-- **Phase 11**: Admin Frontend & Analytics Dashboards (Chart.js)
-- **Phase 12**: Comprehensive Unit, Integration & Security Testing
-- **Phase 13**: Formal Documentation (SRS, HLD, DFD, ERD, API Docs)
-- **Phase 14**: Demo Hardening & Viva Preparation
+* **Zero Hardcoded Secrets**: All sensitive tokens, app passwords, database credentials, and secret keys are loaded exclusively from `.env`.
+* **Isolated Testing**: Automated tests run against in-memory SQLite (`sqlite:///:memory:`), ensuring zero test pollution in development/production databases.
+* **Cryptographic Standards**: Passwords and PINs are securely hashed using modern cryptographic algorithms (`Scrypt` / `PBKDF2`).
+* **Enumeration Protection**: Forgot Password and registration endpoints return uniform timing and messages to prevent username harvesting.
+
+---
+
+## 10. License
+
+This project is developed for educational, academic, and portfolio demonstration purposes. All rights reserved.

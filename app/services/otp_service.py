@@ -85,13 +85,33 @@ class OTPService:
         db.session.add(challenge)
         db.session.commit()
 
-        # Simulated Delivery Log (Safe for local dev/demo)
         user = db.session.get(User, user_id)
         user_email = user.email if user else "user"
-        logger.info(
-            "[SIMULATED OTP DELIVERY] Sent OTP code '%s' for Transaction #%d to user '%s' (Expires in %ds)",
-            plaintext_otp, transaction_id, user_email, expiry_duration
+        user_name = user.name if user else None
+
+        # Dispatch OTP challenge via active EmailProvider
+        from app.providers.email_provider import get_email_provider
+        provider = get_email_provider()
+        expires_in_minutes = max(1, int(expiry_duration // 60))
+        dispatch_success, dispatch_err = provider.send_transaction_otp(
+            recipient_email=user_email,
+            otp_code=plaintext_otp,
+            transaction_id=transaction_id,
+            amount=tx.amount if tx else None,
+            recipient_name=user_name,
+            expires_in_minutes=expires_in_minutes,
         )
+
+        if not dispatch_success:
+            logger.warning(
+                "[OTP CHALLENGE] Failed to dispatch email for Transaction #%d to '%s': %s",
+                transaction_id, user_email, dispatch_err
+            )
+        else:
+            logger.info(
+                "[OTP CHALLENGE] Generated and dispatched challenge for Transaction #%d to user '%s' (Expires in %ds)",
+                transaction_id, user_email, expiry_duration
+            )
 
         from app.services.audit_service import AuditService
         AuditService.log_event(
@@ -102,7 +122,7 @@ class OTPService:
             user_id=user_id,
             target_resource=f"Transaction:{transaction_id}",
             severity="INFO",
-            details={"transaction_id": transaction_id, "expiry_seconds": expiry_duration},
+            details={"transaction_id": transaction_id, "expiry_seconds": expiry_duration, "email_dispatched": dispatch_success},
         )
 
         return challenge, plaintext_otp, None

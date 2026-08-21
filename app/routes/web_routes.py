@@ -61,6 +61,12 @@ def history_page():
     return render_template("history.html", active_page="history")
 
 
+@web_bp.route("/profile", methods=["GET"])
+def profile_page():
+    """Render customer profile management page."""
+    return render_template("profile.html", active_page="profile")
+
+
 # =====================================================================
 # ADMIN SECURITY OPERATIONS CENTER (SOC) ROUTES
 # =====================================================================

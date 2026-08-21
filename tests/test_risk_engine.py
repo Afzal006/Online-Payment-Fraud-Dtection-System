@@ -382,7 +382,7 @@ def test_4_tier_risk_classifications():
 def test_decision_mapping_verification():
     """Verify decision mappings across all 4 tiers."""
     assert RiskDecisionService.evaluate_risk(15)["decision"] == "APPROVE_IMMEDIATELY"
-    assert RiskDecisionService.evaluate_risk(45)["decision"] == "APPROVE_WITH_MONITORING"
+    assert RiskDecisionService.evaluate_risk(45)["decision"] == "TRIGGER_OTP_VERIFICATION"
     assert RiskDecisionService.evaluate_risk(65)["decision"] == "TRIGGER_OTP_VERIFICATION"
     assert RiskDecisionService.evaluate_risk(90)["decision"] == "TRIGGER_SECURITY_REVIEW"
 

@@ -10,7 +10,6 @@
  */
 
 let userAvailableBalance = 0;
-let userBeneficiaries = [];
 let resolvedRecipient = null;
 let currentPaymentMethod = 'QR_CODE';
 let isUserPinConfigured = false;
@@ -28,24 +27,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   await loadSenderProfile();
   await checkPinStatus();
-  await loadBeneficiariesList();
 
-  // Check URL query parameters for mode or pre-selected beneficiary
+  // Check URL query parameters for mode
   const urlParams = new URLSearchParams(window.location.search);
   const modeParam = urlParams.get('mode');
-  const preSelectedBId = urlParams.get('b');
 
-  if (modeParam && ['qr', 'upi', 'mobile', 'saved'].includes(modeParam)) {
+  if (modeParam && ['qr', 'upi', 'mobile'].includes(modeParam)) {
     switchPaymentTab(modeParam);
-  }
-
-  if (preSelectedBId) {
-    switchPaymentTab('saved');
-    const select = document.getElementById('select-saved-beneficiary');
-    if (select) {
-      select.value = preSelectedBId;
-      handleSavedBeneficiaryChange();
-    }
   }
 
   // Result modal close & SHAP drawer handlers
@@ -117,7 +105,7 @@ function switchPaymentTab(tabName) {
     stopCameraScanner();
   }
 
-  const tabs = ['qr', 'upi', 'mobile', 'saved'];
+  const tabs = ['qr', 'upi', 'mobile'];
   tabs.forEach((t) => {
     const btn = document.getElementById(`tab-${t}`);
     const content = document.getElementById(`tab-content-${t}`);
@@ -140,7 +128,6 @@ function switchPaymentTab(tabName) {
   if (tabName === 'qr') currentPaymentMethod = 'QR_CODE';
   else if (tabName === 'upi') currentPaymentMethod = 'UPI_ID';
   else if (tabName === 'mobile') currentPaymentMethod = 'MOBILE_NUMBER';
-  else if (tabName === 'saved') currentPaymentMethod = 'SAVED_BENEFICIARY';
 }
 
 // ==========================================
@@ -413,46 +400,6 @@ async function handleResolveMobileSubmit() {
     return;
   }
   await resolveAndDisplayRecipient(mobileVal, 'MOBILE_NUMBER');
-}
-
-async function loadBeneficiariesList() {
-  const res = await window.api.getBeneficiaries();
-  const select = document.getElementById('select-saved-beneficiary');
-  if (!select) return;
-
-  if (res && res.ok && res.data && Array.isArray(res.data.beneficiaries)) {
-    userBeneficiaries = res.data.beneficiaries;
-    select.innerHTML = '<option value="">-- Choose Beneficiary --</option>';
-    userBeneficiaries.forEach((b) => {
-      const opt = document.createElement('option');
-      opt.value = b.id;
-      const nick = b.nickname ? ` (${b.nickname})` : '';
-      opt.textContent = `👤 ${b.beneficiary_name}${nick} — ${b.beneficiary_upi_id}`;
-      select.appendChild(opt);
-    });
-  }
-}
-
-function handleSavedBeneficiaryChange() {
-  const select = document.getElementById('select-saved-beneficiary');
-  if (!select || !select.value) return;
-
-  const selectedB = userBeneficiaries.find((b) => b.id === parseInt(select.value));
-  if (selectedB) {
-    resolvedRecipient = {
-      resolved: true,
-      recipient_id: null,
-      recipient_name: selectedB.beneficiary_name,
-      recipient_upi_id: selectedB.beneficiary_upi_id,
-      recipient_phone: selectedB.beneficiary_phone,
-      account_type: 'SAVED_BENEFICIARY',
-      is_saved_beneficiary: true,
-      beneficiary_id: selectedB.id,
-      trust_status: selectedB.trust_status,
-      is_cooling_active: selectedB.is_cooling_active,
-    };
-    displayRecipientCard(resolvedRecipient);
-  }
 }
 
 async function resolveAndDisplayRecipient(query, method) {
@@ -1076,8 +1023,7 @@ function showResultModal(data) {
 async function triggerOtpChallenge(txId) {
   const res = await window.api.generateOtp(txId);
   if (res && res.ok) {
-    const devOtp = res.data._dev_simulated_otp || null;
-    window.otpModal.open(txId, devOtp, async (updatedTx) => {
+    window.otpModal.open(txId, null, async (updatedTx) => {
       showToast(`Transaction #${updatedTx.id} approved!`, 'success');
       await loadSenderProfile();
       setTimeout(() => {
@@ -1098,7 +1044,6 @@ window.handleScanQrSubmit = handleScanQrSubmit;
 window.loadQrPreset = loadQrPreset;
 window.handleResolveUpiSubmit = handleResolveUpiSubmit;
 window.handleResolveMobileSubmit = handleResolveMobileSubmit;
-window.handleSavedBeneficiaryChange = handleSavedBeneficiaryChange;
 window.setAmountChip = setAmountChip;
 window.loadUpiScenario = loadUpiScenario;
 window.openPaymentReviewModal = openPaymentReviewModal;

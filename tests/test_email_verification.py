@@ -328,25 +328,25 @@ def test_dual_factor_registration_flow(client):
     email_otp = DevelopmentEmailProvider.get_last_email_otp("leia@example.com")
     user = User.query.filter_by(email="leia@example.com").first()
 
-    # 1. Verify ONLY email
+    # 1. Verify email -> Activates account
     res_email = client.post("/api/auth/verify-email-otp", json={
         "email": "leia@example.com",
         "otp_code": email_otp,
     })
     assert res_email.status_code == 200
     assert res_email.get_json()["is_email_verified"] is True
-    assert res_email.get_json()["is_fully_verified"] is False
-    assert res_email.get_json()["account_status"] == "PENDING_VERIFICATION"
+    assert res_email.get_json()["is_fully_verified"] is True
+    assert res_email.get_json()["account_status"] == "ACTIVE"
 
-    # Login should still fail because phone is pending
+    # Login succeeds immediately upon email verification
     res_login1 = client.post("/api/auth/login", json={
         "email": "leia@example.com",
         "password": "StrongPassword2026!",
     })
-    assert res_login1.status_code == 401
-    assert res_login1.get_json()["code"] == "PHONE_NOT_VERIFIED"
+    assert res_login1.status_code == 200
+    assert "access_token" in res_login1.get_json()
 
-    # 2. Retrieve phone OTP dispatched during registration and verify phone
+    # 2. Retrieve phone OTP dispatched during registration and verify phone as well
     from app.providers.sms_provider import DevelopmentSmsProvider
     phone_otp = DevelopmentSmsProvider.get_last_otp("+919876543210")
     assert phone_otp is not None
@@ -359,14 +359,6 @@ def test_dual_factor_registration_flow(client):
     assert res_phone.get_json()["is_phone_verified"] is True
     assert res_phone.get_json()["is_fully_verified"] is True
     assert res_phone.get_json()["account_status"] == "ACTIVE"
-
-    # 3. Now login succeeds
-    res_login2 = client.post("/api/auth/login", json={
-        "email": "leia@example.com",
-        "password": "StrongPassword2026!",
-    })
-    assert res_login2.status_code == 200
-    assert "access_token" in res_login2.get_json()
 
 
 # ============================================================================

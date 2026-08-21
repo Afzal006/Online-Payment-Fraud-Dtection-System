@@ -42,18 +42,25 @@ def register():
     )
 
     if error:
-        return jsonify({"error": error}), 409
+        code = "ACCOUNT_EXISTS_UNVERIFIED" if "pending verification" in str(error).lower() else "ACCOUNT_ALREADY_EXISTS" if "already" in str(error).lower() else "REGISTRATION_FAILED"
+        return jsonify({"error": error, "code": code}), 409
 
     requires_email_verification = not user.is_email_verified
     requires_phone_verification = bool(user.phone_number and not user.is_phone_verified)
 
     response_data = {
-        "message": "User registered successfully. Please verify your email and mobile number to activate your account.",
+        "message": "User registered successfully. Please verify your email or mobile number to activate your account.",
         "user": user.to_dict(),
         "requires_email_verification": requires_email_verification,
         "requires_phone_verification": requires_phone_verification,
         "account_status": user.account_status,
     }
+
+    if (current_app.config.get("FLASK_ENV") == "development" or current_app.config.get("SMS_PROVIDER") == "development") and phone:
+        from app.providers.sms_provider import DevelopmentSmsProvider
+        dev_sms = DevelopmentSmsProvider.get_last_otp(f"+91{phone}") or DevelopmentSmsProvider.get_last_otp(phone)
+        if dev_sms:
+            response_data["dev_phone_otp"] = dev_sms
 
     return jsonify(response_data), 201
 
@@ -100,7 +107,7 @@ def resend_email_verification():
     success, _, error = AuthService.resend_email_verification(email=email)
 
     if error:
-        status_code = 429 if "wait" in error.lower() else 400
+        status_code = 429 if "wait" in error.lower() else 503 if ("smtp" in error.lower() or "configured" in error.lower() or "deliver" in error.lower()) else 400
         return jsonify({"error": error}), status_code
 
     return jsonify({
@@ -164,18 +171,20 @@ def verify_phone_otp():
         return jsonify({"error": error_msg}), 400
 
     identifier = data.get("phone_number") or data.get("phone") or data.get("email")
+    email = data.get("email")
     otp_code = data.get("otp_code") or data.get("otp") or data.get("code")
 
     success, user, error = AuthService.verify_phone_otp(
         phone_or_email=identifier,
         otp_code=otp_code,
+        email=email,
     )
 
     if not success:
         return jsonify({"error": error}), 400
 
     return jsonify({
-        "message": "Mobile number verified successfully.",
+        "message": error or "Mobile number verified successfully.",
         "user": user.to_dict() if user else None,
         "is_phone_verified": True,
         "is_fully_verified": user.is_fully_verified if user else False,
@@ -192,7 +201,8 @@ def resend_phone_otp():
         return jsonify({"error": error_msg}), 400
 
     identifier = data.get("phone_number") or data.get("phone") or data.get("email")
-    success, dev_otp, error = AuthService.resend_phone_otp(phone_or_email=identifier)
+    email = data.get("email")
+    success, dev_otp, error = AuthService.resend_phone_otp(phone_or_email=identifier, email=email)
 
     if error:
         status_code = 429 if "wait" in error.lower() else 400

@@ -136,8 +136,8 @@ def test_boundary_50000_transfer():
     )
     assert 31 <= eval_res["risk_score"] <= 70
     assert eval_res["risk_level"] == "MEDIUM"
-    assert eval_res["requires_otp"] is False
-    assert eval_res["decision"] == "APPROVE_WITH_MONITORING"
+    assert eval_res["requires_otp"] is True
+    assert eval_res["decision"] == "TRIGGER_OTP_VERIFICATION"
 
 
 def test_boundary_50001_transfer():

@@ -87,14 +87,16 @@ def test_risk_decision_engine_boundaries():
     # 30 -> MEDIUM
     r30 = evaluate_transaction_risk(30)
     assert r30["risk_level"] == "MEDIUM"
-    assert r30["decision"] == "APPROVE_WITH_MONITORING"
-    assert r30["requires_otp"] is False
-    assert r30["create_alert"] is False
+    assert r30["decision"] == "TRIGGER_OTP_VERIFICATION"
+    assert r30["requires_otp"] is True
+    assert r30["create_alert"] is True
 
     # 59 -> MEDIUM
     r59 = evaluate_transaction_risk(59)
     assert r59["risk_level"] == "MEDIUM"
-    assert r59["decision"] == "APPROVE_WITH_MONITORING"
+    assert r59["decision"] == "TRIGGER_OTP_VERIFICATION"
+    assert r59["requires_otp"] is True
+    assert r59["create_alert"] is True
 
     # 60 -> HIGH
     r60 = evaluate_transaction_risk(60)

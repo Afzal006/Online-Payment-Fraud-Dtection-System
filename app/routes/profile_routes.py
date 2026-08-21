@@ -33,37 +33,92 @@ def get_profile():
 @profile_bp.route("", methods=["PUT"])
 @jwt_required()
 def update_profile():
-    """Update profile details (name, phone number)."""
+    """Update profile details (name, phone number) for authenticated user."""
+    user_id = int(get_jwt_identity())
+    data = request.get_json(silent=True) or {}
+
+    name = data.get("name")
+    phone_number = data.get("phone_number")
+
+    if name is None and phone_number is None:
+        return jsonify({"error": "No update fields provided."}), 400
+
+    success, user, message_or_error, status_code, phone_verification_required = AuthService.update_user_profile(
+        user_id=user_id,
+        name=name,
+        phone_number=phone_number,
+    )
+
+    if not success:
+        return jsonify({"error": message_or_error}), status_code
+
+    return jsonify({
+        "success": True,
+        "message": message_or_error,
+        "phone_verification_required": phone_verification_required,
+        "phone_number": user.phone_number,
+        "profile": user.to_dict(include_private=False),
+    }), status_code
+
+
+@profile_bp.route("/phone/verify-otp", methods=["POST"])
+@jwt_required()
+def verify_profile_phone_otp():
+    """Verify phone verification OTP code for the authenticated user."""
     user_id = int(get_jwt_identity())
     user = AuthService.get_user_by_id(user_id)
 
     if not user:
-        return jsonify({"error": "User not found", "code": "NOT_FOUND"}), 404
+        return jsonify({"error": "User account not found."}), 404
 
     data = request.get_json(silent=True) or {}
+    otp_code = data.get("otp_code") or data.get("otp") or data.get("code")
 
-    if "name" in data:
-        name = str(data["name"]).strip()
-        if len(name) < 2 or len(name) > 100:
-            return jsonify({"error": "Name must be between 2 and 100 characters"}), 400
-        user.name = name
+    if not otp_code or not str(otp_code).strip():
+        return jsonify({"error": "Verification OTP code is required."}), 400
 
-    if "phone_number" in data:
-        phone = str(data["phone_number"]).strip() if data["phone_number"] else None
-        if phone and len(phone) > 20:
-            return jsonify({"error": "Phone number must not exceed 20 characters"}), 400
-        user.phone_number = phone
+    success, user, error = AuthService.verify_phone_otp(
+        phone_or_email=user.email,
+        otp_code=str(otp_code).strip(),
+    )
 
-    try:
-        db.session.commit()
-        return jsonify({
-            "success": True,
-            "message": "Profile updated successfully",
-            "profile": user.to_dict(),
-        }), 200
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"error": f"Failed to update profile: {str(e)}"}), 500
+    if not success:
+        return jsonify({"error": error or "Verification failed."}), 400
+
+    return jsonify({
+        "success": True,
+        "message": "Mobile number verified successfully.",
+        "is_phone_verified": True,
+        "profile": user.to_dict(include_private=False),
+    }), 200
+
+
+@profile_bp.route("/phone/resend-otp", methods=["POST"])
+@jwt_required()
+def resend_profile_phone_otp():
+    """Resend phone verification OTP for authenticated user's unverified phone number."""
+    user_id = int(get_jwt_identity())
+    user = AuthService.get_user_by_id(user_id)
+
+    if not user:
+        return jsonify({"error": "User account not found."}), 404
+
+    if not user.phone_number:
+        return jsonify({"error": "No phone number is configured on this profile."}), 400
+
+    if user.is_phone_verified:
+        return jsonify({"error": "Mobile number is already verified."}), 400
+
+    success, dev_otp, error = AuthService.resend_phone_otp(phone_or_email=user.email)
+    if error:
+        status_code = 429 if "wait" in error.lower() else 400
+        return jsonify({"error": error}), status_code
+
+    resp = {
+        "success": True,
+        "message": f"A new 6-digit verification code has been dispatched to +91 {user.phone_number}."
+    }
+    return jsonify(resp), 200
 
 
 @profile_bp.route("/devices", methods=["GET"])

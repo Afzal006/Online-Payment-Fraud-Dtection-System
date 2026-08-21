@@ -183,6 +183,69 @@ def init_database(app=None, config_name: str = "development") -> bool:
                     conn.execute(db.text("ALTER TABLE transactions ADD COLUMN reference_id VARCHAR(40)"))
                 conn.commit()
 
+            # Verify and update check_tx_risk_level constraint in SQLite if needed
+            if db.engine.dialect.name == "sqlite":
+                with db.engine.connect() as conn:
+                    tx_sql_row = conn.execute(db.text("SELECT sql FROM sqlite_master WHERE type='table' AND name='transactions'")).fetchone()
+                    if tx_sql_row and tx_sql_row[0] and "CRITICAL" not in tx_sql_row[0]:
+                        print("[*] Upgrading transactions check_tx_risk_level constraint to include 'CRITICAL'...")
+                        conn.execute(db.text("PRAGMA foreign_keys = OFF"))
+                        current_cols = [c["name"] for c in inspector.get_columns("transactions")]
+                        current_cols_str = ", ".join(current_cols)
+                        
+                        create_tx_sql = """
+                        CREATE TABLE transactions_new (
+                            id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, 
+                            user_id INTEGER NOT NULL, 
+                            step INTEGER NOT NULL, 
+                            type VARCHAR(20) NOT NULL, 
+                            amount FLOAT NOT NULL, 
+                            name_orig VARCHAR(50), 
+                            oldbalance_org FLOAT NOT NULL, 
+                            newbalance_orig FLOAT NOT NULL, 
+                            name_dest VARCHAR(50), 
+                            oldbalance_dest FLOAT NOT NULL, 
+                            newbalance_dest FLOAT NOT NULL, 
+                            prediction INTEGER NOT NULL, 
+                            fraud_probability FLOAT NOT NULL, 
+                            risk_score INTEGER NOT NULL, 
+                            risk_level VARCHAR(20) NOT NULL, 
+                            decision VARCHAR(50) NOT NULL, 
+                            status VARCHAR(30) NOT NULL, 
+                            requires_otp BOOLEAN NOT NULL, 
+                            otp_code VARCHAR(10), 
+                            otp_expires_at DATETIME, 
+                            otp_attempts INTEGER NOT NULL, 
+                            explanation_json TEXT, 
+                            created_at DATETIME NOT NULL, 
+                            beneficiary_id INTEGER, 
+                            destination_upi_id VARCHAR(100), 
+                            destination_name VARCHAR(100), 
+                            payment_note VARCHAR(255), 
+                            balance_before FLOAT, 
+                            balance_after FLOAT, 
+                            idempotency_key VARCHAR(64), 
+                            recipient_user_id INTEGER, 
+                            payment_method VARCHAR(20) DEFAULT 'UPI_ID', 
+                            reference_id VARCHAR(40), 
+                            CONSTRAINT check_tx_amount_positive CHECK (amount > 0), 
+                            CONSTRAINT check_tx_fraud_prob_range CHECK (fraud_probability >= 0.0 AND fraud_probability <= 1.0), 
+                            CONSTRAINT check_tx_risk_score_range CHECK (risk_score >= 0 AND risk_score <= 100), 
+                            CONSTRAINT check_tx_risk_level CHECK (risk_level IN ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL')), 
+                            FOREIGN KEY(user_id) REFERENCES users (id) ON DELETE CASCADE
+                        )
+                        """
+                        conn.execute(db.text(create_tx_sql))
+                        conn.execute(db.text(f"INSERT INTO transactions_new ({current_cols_str}) SELECT {current_cols_str} FROM transactions"))
+                        conn.execute(db.text("DROP TABLE transactions"))
+                        conn.execute(db.text("ALTER TABLE transactions_new RENAME TO transactions"))
+                        conn.execute(db.text("CREATE INDEX IF NOT EXISTS ix_transactions_user_id ON transactions (user_id)"))
+                        conn.execute(db.text("CREATE INDEX IF NOT EXISTS ix_transactions_user_id_created_at ON transactions (user_id, created_at)"))
+                        conn.execute(db.text("CREATE INDEX IF NOT EXISTS ix_transactions_created_at ON transactions (created_at)"))
+                        conn.execute(db.text("PRAGMA foreign_keys = ON"))
+                        conn.commit()
+                        print("[+] Transactions check constraint successfully upgraded with 'CRITICAL'.")
+
         if "alerts" in table_names:
             alert_cols = [c["name"] for c in inspector.get_columns("alerts")]
             with db.engine.connect() as conn:
@@ -214,6 +277,54 @@ def init_database(app=None, config_name: str = "development") -> bool:
                     print("[*] Migrating alerts schema: adding column 'correlation_count'...")
                     conn.execute(db.text("ALTER TABLE alerts ADD COLUMN correlation_count INTEGER DEFAULT 1"))
                 conn.commit()
+
+            if db.engine.dialect.name == "sqlite":
+                with db.engine.connect() as conn:
+                    alert_sql_row = conn.execute(db.text("SELECT sql FROM sqlite_master WHERE type='table' AND name='alerts'")).fetchone()
+                    if alert_sql_row and alert_sql_row[0] and "LOW" not in alert_sql_row[0]:
+                        print("[*] Upgrading alerts check_alert_severity constraint to include 'LOW'...")
+                        conn.execute(db.text("PRAGMA foreign_keys = OFF"))
+                        current_alert_cols = [c["name"] for c in inspector.get_columns("alerts")]
+                        current_alert_cols_str = ", ".join(current_alert_cols)
+                        
+                        create_alert_sql = """
+                        CREATE TABLE alerts_new (
+                            id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, 
+                            transaction_id INTEGER NOT NULL, 
+                            user_id INTEGER NOT NULL, 
+                            alert_type VARCHAR(50) NOT NULL, 
+                            severity VARCHAR(20) NOT NULL, 
+                            message TEXT NOT NULL, 
+                            status VARCHAR(20) NOT NULL, 
+                            created_at DATETIME NOT NULL, 
+                            resolved_at DATETIME, 
+                            notes TEXT, 
+                            resolved_by VARCHAR(100), 
+                            case_id INTEGER, 
+                            assigned_to_id INTEGER, 
+                            assigned_at DATETIME, 
+                            acknowledged_at DATETIME, 
+                            acknowledged_by VARCHAR(100), 
+                            dedup_signature VARCHAR(64), 
+                            correlation_count INTEGER DEFAULT 1, 
+                            CONSTRAINT check_alert_severity CHECK (severity IN ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL')), 
+                            CONSTRAINT check_alert_status CHECK (status IN ('OPEN', 'ACKNOWLEDGED', 'INVESTIGATING', 'RESOLVED', 'FALSE_POSITIVE', 'ESCALATED', 'DISMISSED')), 
+                            FOREIGN KEY(transaction_id) REFERENCES transactions (id) ON DELETE CASCADE, 
+                            FOREIGN KEY(user_id) REFERENCES users (id) ON DELETE CASCADE
+                        )
+                        """
+                        conn.execute(db.text(create_alert_sql))
+                        conn.execute(db.text(f"INSERT INTO alerts_new ({current_alert_cols_str}) SELECT {current_alert_cols_str} FROM alerts"))
+                        conn.execute(db.text("DROP TABLE alerts"))
+                        conn.execute(db.text("ALTER TABLE alerts_new RENAME TO alerts"))
+                        conn.execute(db.text("CREATE UNIQUE INDEX IF NOT EXISTS ix_alerts_transaction_id ON alerts (transaction_id)"))
+                        conn.execute(db.text("CREATE INDEX IF NOT EXISTS ix_alerts_user_id ON alerts (user_id)"))
+                        conn.execute(db.text("CREATE INDEX IF NOT EXISTS ix_alerts_status ON alerts (status)"))
+                        conn.execute(db.text("CREATE INDEX IF NOT EXISTS ix_alerts_created_at ON alerts (created_at)"))
+                        conn.execute(db.text("CREATE INDEX IF NOT EXISTS ix_alerts_user_id_status ON alerts (user_id, status)"))
+                        conn.execute(db.text("PRAGMA foreign_keys = ON"))
+                        conn.commit()
+                        print("[+] Alerts check constraint successfully upgraded.")
 
         if "beneficiaries" in table_names:
             ben_cols = [c["name"] for c in inspector.get_columns("beneficiaries")]

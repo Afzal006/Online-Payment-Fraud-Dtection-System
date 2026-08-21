@@ -136,10 +136,16 @@ class RiskDecisionService:
             final_score = int(round(weighted))
 
             # General Policy Rules for Indian daily payment risk bands:
-            if amount > cls.AMOUNT_SIGNIFICANT_MAX and clean_type in ["TRANSFER", "CASH_OUT"]:
-                final_score = max(75, final_score)
-            elif amount > cls.AMOUNT_MODERATE_MAX and clean_type in ["TRANSFER", "CASH_OUT"]:
-                final_score = max(65, final_score)
+            if amount > cls.AMOUNT_SIGNIFICANT_MAX:
+                if clean_type in ["TRANSFER", "CASH_OUT"]:
+                    final_score = max(75, final_score)
+                elif clean_type in ["PAYMENT", "DEBIT"]:
+                    final_score = max(65, final_score)
+            elif amount > cls.AMOUNT_MODERATE_MAX:
+                if clean_type in ["TRANSFER", "CASH_OUT"]:
+                    final_score = max(65, final_score)
+                elif clean_type in ["PAYMENT", "DEBIT"]:
+                    final_score = max(60, final_score)
             elif amount > cls.AMOUNT_NORMAL_MAX and clean_type in ["TRANSFER", "CASH_OUT"]:
                 final_score = max(35, final_score)
 
@@ -162,12 +168,12 @@ class RiskDecisionService:
             user_msg = "Payment verified and approved automatically."
         elif final_score <= cls.RISK_MEDIUM_MAX:
             risk_level = "MEDIUM"
-            decision = "APPROVE_WITH_MONITORING"
-            initial_status = "APPROVED"
-            requires_otp = False
-            create_alert = False
-            alert_severity = None
-            user_msg = "Payment completed with routine telemetry monitoring."
+            decision = "TRIGGER_OTP_VERIFICATION"
+            initial_status = "OTP_REQUIRED"
+            requires_otp = True
+            create_alert = True
+            alert_severity = "MEDIUM"
+            user_msg = "Additional verification required. One-time verification code sent."
         elif final_score <= cls.RISK_HIGH_MAX:
             risk_level = "HIGH"
             decision = "TRIGGER_OTP_VERIFICATION"
@@ -227,11 +233,12 @@ class RiskDecisionService:
             return {
                 "risk_score": bounded_score,
                 "risk_level": "MEDIUM",
-                "decision": "APPROVE_WITH_MONITORING",
-                "initial_status": "APPROVED",
-                "requires_otp": False,
-                "create_alert": False,
-                "user_message": "Payment completed with routine telemetry monitoring.",
+                "decision": "TRIGGER_OTP_VERIFICATION",
+                "initial_status": "OTP_REQUIRED",
+                "requires_otp": True,
+                "create_alert": True,
+                "alert_severity": "MEDIUM",
+                "user_message": "Additional verification required. One-time verification code sent.",
             }
         elif bounded_score <= cls.RISK_HIGH_MAX:
             return {

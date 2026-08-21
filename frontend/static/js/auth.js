@@ -12,6 +12,12 @@ document.addEventListener('DOMContentLoaded', () => {
   // 2. Login Form Handler
   const loginForm = document.getElementById('login-form');
   if (loginForm) {
+    // Autofill email if passed via query parameter
+    const loginEmailInput = document.getElementById('email');
+    if (loginEmailInput && urlParams.get('email')) {
+      loginEmailInput.value = urlParams.get('email').trim();
+    }
+
     // Show banner if redirected with verified notice
     if (urlParams.get('verified') === '1' || urlParams.get('verified') === 'email') {
       showToast('Verification complete! Please sign in with your credentials.', 'success');
@@ -52,9 +58,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const errorCode = res && res.data && res.data.code;
         
         if (errorBox) {
-          if (errorCode === 'EMAIL_NOT_VERIFIED' || errorCode === 'PHONE_NOT_VERIFIED') {
+          if (errorCode === 'EMAIL_NOT_VERIFIED' || errorCode === 'PHONE_NOT_VERIFIED' || errorText.toLowerCase().includes('verify')) {
             errorBox.innerHTML = `<div><strong>Account Verification Required:</strong> ${errorText}</div>
-            <div style="margin-top: 6px;"><a href="/register?verify=1&email=${encodeURIComponent(email)}" style="color: #38bdf8; text-decoration: underline; font-weight: 600;">Complete Verification Now →</a></div>`;
+            <div style="margin-top: 8px;"><a href="/register?verify=1&email=${encodeURIComponent(email)}" style="color: #38bdf8; text-decoration: underline; font-weight: 600;">Complete Verification Now →</a></div>`;
           } else {
             errorBox.textContent = errorText;
           }
@@ -76,10 +82,10 @@ document.addEventListener('DOMContentLoaded', () => {
   let phoneVerified = false;
 
   function updateActivationState() {
-    if (emailVerified && phoneVerified) {
+    if (emailVerified || phoneVerified) {
       const completeSection = document.getElementById('section-activation-complete');
       if (completeSection) completeSection.style.display = 'block';
-      showToast('Account fully activated! You can now log in.', 'success');
+      showToast('Account activated! You can now log in.', 'success');
     }
   }
 
@@ -118,11 +124,31 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   if (registerForm) {
+    // Check if user came from verification prompt with ?verify=1&email=...
+    if (urlParams.get('verify') === '1' && urlParams.get('email')) {
+      const targetEmail = urlParams.get('email').trim();
+      currentRegEmail = targetEmail;
+      if (stepRegContainer) stepRegContainer.style.display = 'none';
+      if (stepVerifyContainer) stepVerifyContainer.style.display = 'block';
+      const emailDisplay = document.getElementById('verify-email-display');
+      if (emailDisplay) emailDisplay.textContent = targetEmail;
+      window.api.resendEmailVerification(targetEmail);
+      showToast('Loaded verification portal. Fresh verification code requested.', 'info');
+    }
+
     registerForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const name = document.getElementById('reg-name').value.trim();
       const email = document.getElementById('reg-email').value.trim();
-      const phone = document.getElementById('reg-phone') ? document.getElementById('reg-phone').value.trim() : '';
+      const rawPhone = document.getElementById('reg-phone') ? document.getElementById('reg-phone').value.trim() : '';
+      let phone = rawPhone.replace(/[^\d+]/g, '');
+      if (phone.startsWith('+91')) {
+        phone = phone.slice(3);
+      } else if (phone.startsWith('91') && phone.length === 12) {
+        phone = phone.slice(2);
+      } else if (phone.startsWith('0') && phone.length === 11) {
+        phone = phone.slice(1);
+      }
       const password = document.getElementById('reg-password').value;
       const confirmPassword = document.getElementById('reg-confirm-password').value;
       const submitBtn = document.getElementById('btn-register-submit');
@@ -182,11 +208,47 @@ document.addEventListener('DOMContentLoaded', () => {
           if (phoneCard) phoneCard.style.display = 'none';
         }
 
-        showToast('Account created! Please enter verification codes.', 'success');
+        showToast('Account created! Please enter verification code.', 'success');
       } else {
         const errorText = (res && res.data && res.data.error) || 'Registration failed.';
+        const errorCode = res && res.data && res.data.code;
         if (errorBox) {
-          errorBox.textContent = errorText;
+          if (errorCode === 'ACCOUNT_EXISTS_UNVERIFIED' || errorText.toLowerCase().includes('pending verification')) {
+            errorBox.innerHTML = `
+              <div style="margin-bottom: 8px;"><strong>Account Pending Verification:</strong> ${errorText}</div>
+              <div style="margin-top: 10px;">
+                <button type="button" id="btn-resume-verify" style="font-size: 13px; padding: 7px 14px; background: rgba(56, 189, 248, 0.15); border: 1px solid #38bdf8; color: #38bdf8; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                  Resume Verification →
+                </button>
+              </div>
+            `;
+            const resumeBtn = document.getElementById('btn-resume-verify');
+            if (resumeBtn) {
+              resumeBtn.addEventListener('click', () => {
+                currentRegEmail = email;
+                currentRegPhone = phone;
+                emailVerified = false;
+                phoneVerified = !phone;
+                if (stepRegContainer) stepRegContainer.style.display = 'none';
+                if (stepVerifyContainer) stepVerifyContainer.style.display = 'block';
+                const emailDisplay = document.getElementById('verify-email-display');
+                if (emailDisplay) emailDisplay.textContent = email;
+                window.api.resendEmailVerification(email);
+                showToast('Switched to verification portal. Verification code requested.', 'info');
+              });
+            }
+          } else if (errorCode === 'ACCOUNT_ALREADY_EXISTS' || errorText.toLowerCase().includes('already')) {
+            errorBox.innerHTML = `
+              <div style="margin-bottom: 8px;"><strong>Account Already Exists:</strong> ${errorText}</div>
+              <div style="display: flex; gap: 12px; margin-top: 10px; align-items: center;">
+                <a href="/login?email=${encodeURIComponent(email)}" style="color: #38bdf8; text-decoration: underline; font-weight: 600; font-size: 13px;">Sign In →</a>
+                <span style="color: #64748b;">|</span>
+                <a href="/forgot-password?email=${encodeURIComponent(email)}" style="color: #38bdf8; text-decoration: underline; font-weight: 600; font-size: 13px;">Reset Forgotten Password →</a>
+              </div>
+            `;
+          } else {
+            errorBox.textContent = errorText;
+          }
           errorBox.style.display = 'block';
         }
         showToast(errorText, 'error');
@@ -264,7 +326,7 @@ document.addEventListener('DOMContentLoaded', () => {
         btnVerifyPhone.disabled = true;
         btnVerifyPhone.innerHTML = '<span>Checking...</span>';
 
-        const res = await window.api.verifyPhoneOtp(currentRegPhone || currentRegEmail, otpCode);
+        const res = await window.api.verifyPhoneOtp(currentRegPhone, otpCode, currentRegEmail);
         btnVerifyPhone.disabled = false;
         btnVerifyPhone.innerHTML = '<span>Verify</span>';
 
@@ -297,7 +359,7 @@ document.addEventListener('DOMContentLoaded', () => {
       btnResendPhone.addEventListener('click', async () => {
         const id = currentRegPhone || currentRegEmail;
         if (!id) return;
-        const res = await window.api.resendPhoneOtp(id);
+        const res = await window.api.resendPhoneOtp(id, currentRegEmail);
         if (res && res.ok) {
           showToast('New verification code sent via SMS.', 'success');
           startCountdown('btn-resend-phone-otp', 'Resend SMS Code', 60);
@@ -312,6 +374,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // 4. Forgot Password Form Handler
   const forgotForm = document.getElementById('forgot-password-form');
   if (forgotForm) {
+    const forgotEmailInput = document.getElementById('forgot-email');
+    if (forgotEmailInput && urlParams.get('email')) {
+      forgotEmailInput.value = urlParams.get('email').trim();
+    }
+
     forgotForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const email = document.getElementById('forgot-email').value.trim();
@@ -424,40 +491,3 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 });
-
-// Helpers for Demo Autofill
-window.autofillDemoUser = function () {
-  const emailField = document.getElementById('email');
-  const passwordField = document.getElementById('password');
-  if (emailField && passwordField) {
-    emailField.value = 'user@example.com';
-    passwordField.value = 'UserDemo2026!';
-  }
-};
-
-window.autofillDemoAdmin = function () {
-  const emailField = document.getElementById('email');
-  const passwordField = document.getElementById('password');
-  if (emailField && passwordField) {
-    emailField.value = 'admin@example.com';
-    passwordField.value = 'AdminDemo2026!';
-  }
-};
-
-window.autofillDemoCustomer1 = function () {
-  const emailField = document.getElementById('email');
-  const passwordField = document.getElementById('password');
-  if (emailField && passwordField) {
-    emailField.value = 'customer1@example.com';
-    passwordField.value = 'UserDemo2026!';
-  }
-};
-
-window.autofillDemoCustomer2 = function () {
-  const emailField = document.getElementById('email');
-  const passwordField = document.getElementById('password');
-  if (emailField && passwordField) {
-    emailField.value = 'customer2@example.com';
-    passwordField.value = 'UserDemo2026!';
-  }
-};

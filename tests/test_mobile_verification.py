@@ -157,8 +157,8 @@ def test_user_registration_with_phone_creates_unverified_account(client):
     assert last_otp not in user.phone_otp_hash  # Hashed
 
 
-def test_duplicate_phone_number_rejection(client):
-    """Verify that registering an already registered phone number returns 409 Conflict."""
+def test_same_phone_number_allowed_for_multiple_accounts(client):
+    """Verify that registering the same phone number for multiple accounts is allowed (Phase 7.3)."""
     payload1 = {
         "name": "User One",
         "email": "user1@example.com",
@@ -175,8 +175,8 @@ def test_duplicate_phone_number_rejection(client):
         "password": "Password123!",
     }
     res2 = client.post("/api/auth/register", json=payload2)
-    assert res2.status_code == 409
-    assert "mobile number is already registered" in res2.get_json()["error"].lower()
+    assert res2.status_code == 201
+    assert res2.get_json()["user"]["phone_number"] == "9876543210"
 
 
 def test_successful_phone_verification(client):
@@ -290,8 +290,7 @@ def test_resend_otp_rate_limiting_cooldown(client):
 
 
 def test_unverified_phone_user_cannot_login(client):
-    """Verify unverified user account cannot log in until both factors complete."""
-    from app.providers.email_provider import DevelopmentEmailProvider
+    """Verify unverified user account cannot log in until at least one verification factor completes."""
     payload = {
         "name": "Kavita Menon",
         "email": "kavita.login@example.com",
@@ -300,23 +299,19 @@ def test_unverified_phone_user_cannot_login(client):
     }
     client.post("/api/auth/register", json=payload)
 
-    # Verify email first
-    email_otp = DevelopmentEmailProvider.get_last_email_otp("kavita.login@example.com")
-    client.post("/api/auth/verify-email-otp", json={"email": "kavita.login@example.com", "otp_code": email_otp})
-
-    # Attempt login before phone verification (should fail with phone pending)
+    # Attempt login before any verification (should fail with pending verification)
     res_login_fail = client.post("/api/auth/login", json={
         "email": "kavita.login@example.com",
         "password": "Password123!",
     })
     assert res_login_fail.status_code == 401
-    assert "mobile number" in res_login_fail.get_json()["error"].lower() or "pending verification" in res_login_fail.get_json()["error"].lower()
+    assert "pending verification" in res_login_fail.get_json()["error"].lower() or "verify" in res_login_fail.get_json()["error"].lower()
 
     # Verify Phone
     phone_otp = DevelopmentSmsProvider.get_last_otp("+919876543215")
     client.post("/api/auth/verify-phone-otp", json={"phone_number": "9876543215", "otp_code": phone_otp})
 
-    # Attempt login after both factors verified
+    # Attempt login after phone factor verified (succeeds via single-verification)
     res_login_ok = client.post("/api/auth/login", json={
         "email": "kavita.login@example.com",
         "password": "Password123!",

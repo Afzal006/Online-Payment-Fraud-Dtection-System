@@ -495,7 +495,7 @@ def test_scenario_a_trusted_beneficiary_normal_device_normal_location(app, custo
         )
         assert err is None
         assert tx is not None
-        assert tx["decision"] in ["APPROVE_IMMEDIATELY", "APPROVE_WITH_MONITORING"]
+        assert tx["decision"] == "APPROVE_IMMEDIATELY"
         assert tx["requires_otp"] is False
 
 

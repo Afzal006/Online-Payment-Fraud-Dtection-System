@@ -14,6 +14,7 @@ otp_bp = Blueprint("otp", __name__, url_prefix="/api/otp")
 
 
 @otp_bp.route("/generate", methods=["POST"])
+@otp_bp.route("/send", methods=["POST"])
 @jwt_required()
 def generate_otp():
     """Generate a multi-factor OTP challenge for a pending or review transaction."""

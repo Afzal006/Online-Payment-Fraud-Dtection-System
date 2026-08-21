@@ -28,6 +28,7 @@
         <a href="/dashboard" class="nav-link-custom {% if active_page == 'dashboard' %}active{% endif %}">Dashboard</a>
         <a href="/payment" class="nav-link-custom {% if active_page == 'payment' %}active{% endif %}">Make Transfer</a>
         <a href="/history" class="nav-link-custom {% if active_page == 'history' %}active{% endif %}">Ledger History</a>
+        <a href="/profile" class="nav-link-custom {% if active_page == 'profile' %}active{% endif %}">My Profile</a>
         <button id="btn-logout" class="btn-secondary-custom" style="padding: 0.45rem 0.9rem; font-size: 0.85rem; margin-left: 0.5rem;" onclick="logoutUser()">
           Sign Out
         </button>
@@ -96,8 +97,8 @@
         </p>
       </div>
 
-      <div id="otp-dev-helper" class="glass-card" style="margin-bottom: 1rem; padding: 0.85rem; background: rgba(59, 130, 246, 0.1); border-color: rgba(59, 130, 246, 0.3); font-size: 0.85rem; display: none;">
-        <!-- Simulated OTP display for demo/dev -->
+      <div id="otp-dev-helper" class="glass-card" style="margin-bottom: 1rem; padding: 0.85rem; background: rgba(59, 130, 246, 0.1); border-color: rgba(59, 130, 246, 0.3); font-size: 0.88rem; text-align: center; color: #93C5FD; display: block;">
+        📧 Verification code sent to your registered email.
       </div>
 
       <div id="otp-error-msg" style="display: none; padding: 0.75rem; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #FCA5A5; border-radius: var(--radius-md); font-size: 0.85rem; margin-bottom: 1rem; text-align: center;">

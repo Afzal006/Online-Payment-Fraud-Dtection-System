@@ -37,13 +37,14 @@
     },
     "MEDIUM": {
       "range": [30, 59],
-      "action": "APPROVE_WITH_MONITORING",
-      "initial_status": "APPROVED",
-      "requires_otp": false,
-      "alert_generated": false,
+      "action": "TRIGGER_OTP_VERIFICATION",
+      "initial_status": "OTP_REQUIRED",
+      "requires_otp": true,
+      "alert_generated": true,
+      "alert_severity": "MEDIUM",
       "flag_for_review": false,
-      "user_message": "Payment completed with routine telemetry monitoring.",
-      "description": "Low-to-moderate anomaly within acceptable customer risk tolerance."
+      "user_message": "Additional verification required. One-time verification code sent.",
+      "description": "Low-to-moderate anomaly requiring step-up multi-factor authentication."
     },
     "HIGH": {
       "range": [60, 79],

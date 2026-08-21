@@ -40,7 +40,7 @@ def test_login_page_renders(client):
     assert "login-form" in html
     assert "email" in html
     assert "password" in html
-    assert "autofillDemoUser" in html
+    assert "Demo Quick Sign-In" not in html
 
 
 def test_register_page_renders(client):
