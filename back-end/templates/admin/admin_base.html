@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}FraudShield SOC - Admin Security Center{% endblock %}</title>
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+  <!-- Custom Stylesheet -->
+  <link rel="stylesheet" href="/static/css/style.css">
+  {% block extra_css %}{% endblock %}
+</head>
+<body style="background: #0B0F19;">
+
+  <!-- Top Navigation Bar -->
+  <nav class="navbar-custom" style="border-bottom-color: rgba(59, 130, 246, 0.2);">
+    <div style="max-width: 1400px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; width: 100%;">
+      <a href="/admin/dashboard" class="brand-logo">
+        <div class="brand-icon" style="background: linear-gradient(135deg, #EF4444, #8B5CF6);">🛡️</div>
+        <span>FraudShield <span style="color: #EF4444; font-size: 0.8em; font-weight: 800;">SOC ADMIN</span></span>
+      </a>
+
+      <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+        <a href="/admin/dashboard" class="nav-link-custom {% if active_page == 'admin_dashboard' %}active{% endif %}">SOC Dashboard</a>
+        <a href="/admin/customers" class="nav-link-custom {% if active_page == 'admin_customers' %}active{% endif %}">Customers</a>
+        <a href="/admin/transactions" class="nav-link-custom {% if active_page == 'admin_transactions' %}active{% endif %}">All Transactions</a>
+        <a href="/admin/alerts" class="nav-link-custom {% if active_page == 'admin_alerts' %}active{% endif %}">Fraud Alerts</a>
+        <a href="/admin/model" class="nav-link-custom {% if active_page == 'admin_model' %}active{% endif %}">Model Monitoring</a>
+        <button class="btn-secondary-custom" style="padding: 0.4rem 0.8rem; font-size: 0.8rem; margin-left: 0.5rem;" onclick="logoutAdmin()">
+          Sign Out
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main Container -->
+  <main class="app-container" style="max-width: 1400px;">
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- SHAP Explainability Slide-In Drawer -->
+  <div id="shap-drawer-overlay" class="drawer-overlay">
+    <div id="shap-drawer-panel" class="drawer-panel">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+        <div>
+          <h3 style="font-size: 1.35rem; color: #fff;">SOC Risk Assessment</h3>
+          <p style="font-size: 0.8rem; color: var(--text-muted);">Explainable AI (SHAP TreeExplainer)</p>
+        </div>
+        <button id="btn-close-shap-drawer" class="btn-secondary-custom" style="padding: 0.4rem 0.75rem; font-size: 0.85rem;">✕</button>
+      </div>
+
+      <!-- Risk Score Indicator -->
+      <div class="glass-card" style="margin-bottom: 1.5rem; padding: 1.25rem; display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">Overall Risk Score</span>
+          <div id="shap-risk-score-val" style="font-size: 1.8rem; font-weight: 800; color: #fff;">--/100</div>
+        </div>
+        <span id="shap-risk-badge" class="badge-risk badge-risk-low">LOW</span>
+      </div>
+
+      <!-- Natural Language Synthesis -->
+      <div class="glass-card" style="margin-bottom: 1.5rem; padding: 1.25rem; border-left: 3px solid #EF4444;">
+        <h4 style="font-size: 0.85rem; text-transform: uppercase; color: #EF4444; margin-bottom: 0.4rem;">Investigation Narrative</h4>
+        <p id="shap-narrative-text" style="font-size: 0.9rem; color: #E2E8F0; line-height: 1.5;">
+          Loading explainability narrative...
+        </p>
+      </div>
+
+      <!-- Dynamic SHAP Feature Bars -->
+      <h4 style="font-size: 0.85rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.75rem; letter-spacing: 0.05em;">
+        Top Feature Influence (SHAP Values)
+      </h4>
+      <div id="shap-features-list">
+        <!-- Injected via JavaScript -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Core JavaScript Services -->
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/shap_drawer.js"></script>
+  <script src="/static/js/admin/admin_api.js"></script>
+
+  <script>
+    function logoutAdmin() {
+      window.api.clearSession();
+      window.location.href = '/login';
+    }
+  </script>
+
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

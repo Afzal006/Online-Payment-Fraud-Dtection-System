@@ -1,0 +1,65 @@
+{% extends "admin/admin_base.html" %}
+
+{% block title %}Customer Directory - FraudShield SOC{% endblock %}
+
+{% block content %}
+<!-- Page Header -->
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+  <div>
+    <h1 style="font-size: 1.75rem; color: #fff; margin-bottom: 0.25rem;">Customer Accounts Directory & Payment Identities</h1>
+    <p style="color: var(--text-muted); font-size: 0.875rem;">
+      Global registered customer payment profiles, internal UPI identifiers, beneficiary networks, and risk profiles.
+    </p>
+  </div>
+
+  <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+    <div style="position: relative;">
+      <input type="text" id="customer-search-input" class="form-control-custom" placeholder="Search by name, UPI, account ID..." style="padding-left: 2rem; width: 280px;" oninput="onCustomerSearch()">
+      <span style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--text-dim);">🔍</span>
+    </div>
+
+    <select id="customer-sort-select" class="form-select-custom" style="width: auto;" onchange="loadCustomersTable()">
+      <option value="newest" selected>Newest First</option>
+      <option value="oldest">Oldest First</option>
+      <option value="volume_desc">Highest Volume (₹)</option>
+      <option value="tx_count_desc">Most Transactions</option>
+      <option value="high_risk_desc">Most High-Risk Flags</option>
+    </select>
+  </div>
+</div>
+
+<!-- Customers Ledger Card -->
+<div class="glass-card">
+  <div class="table-responsive-custom">
+    <table class="table-custom">
+      <thead>
+        <tr>
+          <th>Account ID</th>
+          <th>Customer Name</th>
+          <th>Payment UPI ID</th>
+          <th>Phone</th>
+          <th>Balance</th>
+          <th>Beneficiaries</th>
+          <th>Total Tx</th>
+          <th>Total Volume (₹)</th>
+          <th>High-Risk Flags</th>
+          <th>Open Alerts</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="customers-page-tbody">
+        <!-- Populated dynamically via admin_customers.js -->
+      </tbody>
+    </table>
+  </div>
+
+  <div id="customers-page-empty" style="text-align: center; padding: 3rem 1rem; color: var(--text-muted); display: none;">
+    <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">👥</div>
+    <p>No customer accounts found matching your query.</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/js/admin/admin_customers.js"></script>
+{% endblock %}

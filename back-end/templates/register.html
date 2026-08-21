@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+
+{% block title %}Register - FraudShield AI Fraud Defense{% endblock %}
+
+{% block content %}
+<div class="auth-wrapper">
+  <div class="glass-card auth-card" style="max-width: 520px;">
+    
+    <!-- STEP 1: Registration Form -->
+    <div id="step-registration-container">
+      <div style="text-align: center; margin-bottom: 2rem;">
+        <div class="brand-icon" style="width: 48px; height: 48px; font-size: 1.5rem; margin: 0 auto 1rem auto;">🛡️</div>
+        <h2 style="font-size: 1.6rem; color: #fff; margin-bottom: 0.35rem;">Create Account</h2>
+        <p style="color: var(--text-muted); font-size: 0.875rem;">Register for an AI-guarded payment portal</p>
+      </div>
+
+      <!-- Error Alert Box -->
+      <div id="auth-error-msg" style="display: none; padding: 0.75rem 1rem; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #FCA5A5; border-radius: var(--radius-md); font-size: 0.85rem; margin-bottom: 1.25rem;">
+      </div>
+
+      <form id="register-form">
+        <div style="margin-bottom: 1.15rem;">
+          <label for="reg-name" class="form-label">Full Name</label>
+          <input type="text" id="reg-name" class="form-control-custom" placeholder="Jane Doe" required autocomplete="name">
+        </div>
+
+        <div style="margin-bottom: 1.15rem;">
+          <label for="reg-email" class="form-label">Email Address</label>
+          <input type="email" id="reg-email" class="form-control-custom" placeholder="jane@example.com" required autocomplete="email">
+          <small style="color: var(--text-muted); font-size: 0.75rem; display: block; margin-top: 0.25rem;">A 6-digit verification code will be sent to verify email ownership.</small>
+        </div>
+
+        <div style="margin-bottom: 1.15rem;">
+          <label for="reg-phone" class="form-label">Mobile Number</label>
+          <div style="display: flex; gap: 8px;">
+            <span style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: var(--radius-md); padding: 0.65rem 0.9rem; color: var(--text-muted); font-weight: 600; font-size: 0.875rem;">+91</span>
+            <input type="tel" id="reg-phone" class="form-control-custom" placeholder="98765 43210" maxlength="15" autocomplete="tel-national">
+          </div>
+          <small style="color: var(--text-muted); font-size: 0.75rem; display: block; margin-top: 0.25rem;">Mobile number is required for verification. You can freely edit, replace, or delete.</small>
+        </div>
+
+        <div style="margin-bottom: 1.15rem;">
+          <label for="reg-password" class="form-label">Password (Min. 8 characters)</label>
+          <input type="password" id="reg-password" class="form-control-custom" placeholder="••••••••" required autocomplete="new-password">
+        </div>
+
+        <div style="margin-bottom: 1.5rem;">
+          <label for="reg-confirm-password" class="form-label">Confirm Password</label>
+          <input type="password" id="reg-confirm-password" class="form-control-custom" placeholder="••••••••" required autocomplete="new-password">
+        </div>
+
+        <button type="submit" id="btn-register-submit" class="btn-primary-custom" style="width: 100%;">
+          <span>Create Account & Verify</span>
+        </button>
+      </form>
+
+      <div style="text-align: center; margin-top: 1.75rem; font-size: 0.875rem; color: var(--text-muted);">
+        Already registered? <a href="/login" style="font-weight: 600;">Sign In</a>
+      </div>
+    </div>
+
+    <!-- STEP 2: Dual Verification Hub -->
+    <div id="step-verification-container" style="display: none;">
+      <div style="text-align: center; margin-bottom: 1.5rem;">
+        <div class="brand-icon" style="width: 48px; height: 48px; font-size: 1.5rem; margin: 0 auto 0.75rem auto;">🔐</div>
+        <h2 style="font-size: 1.45rem; color: #fff; margin-bottom: 0.25rem;">Verify Your Account</h2>
+        <p style="color: var(--text-muted); font-size: 0.825rem;">Verify via Email OTP (Recommended) or Mobile SMS OTP to activate your account</p>
+      </div>
+
+      <!-- Verification Alert Box -->
+      <div id="verify-hub-alert" style="display: none; padding: 0.75rem 1rem; border-radius: var(--radius-md); font-size: 0.85rem; margin-bottom: 1.25rem;">
+      </div>
+
+      <!-- Factor 1: Email Ownership Verification -->
+      <div id="card-email-verification" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: var(--radius-lg); padding: 1.25rem; margin-bottom: 1.25rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+          <div>
+            <div style="font-weight: 600; font-size: 0.95rem; color: #f8fafc; display: flex; align-items: center; gap: 6px;">
+              <span>✉️ Email Verification (Recommended)</span>
+            </div>
+            <div id="verify-email-display" style="font-size: 0.8rem; color: #94a3b8; margin-top: 2px;">user@example.com</div>
+          </div>
+          <span id="badge-email-status" class="badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); font-size: 0.75rem; padding: 4px 8px; border-radius: 999px;">Pending</span>
+        </div>
+
+        <div id="section-email-input">
+          <p style="font-size: 0.8rem; color: #cbd5e1; margin-bottom: 0.75rem;">Enter the 6-digit code sent to your inbox:</p>
+          <div style="display: flex; gap: 8px; margin-bottom: 0.75rem;">
+            <input type="text" id="input-email-otp" class="form-control-custom" placeholder="123456" maxlength="6" pattern="[0-9]{6}" style="letter-spacing: 4px; font-size: 1.1rem; text-align: center; font-family: monospace; font-weight: 700;">
+            <button type="button" id="btn-verify-email" class="btn-primary-custom" style="padding: 0.6rem 1.25rem; white-space: nowrap;">
+              <span>Verify Email</span>
+            </button>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.775rem;">
+            <span style="color: var(--text-muted);">Didn't receive code?</span>
+            <button type="button" id="btn-resend-email-otp" style="background: none; border: none; color: #38bdf8; cursor: pointer; text-decoration: underline; font-size: 0.775rem; padding: 0;">Resend Email Code</button>
+          </div>
+        </div>
+
+        <div id="section-email-completed" style="display: none; color: #34d399; font-size: 0.85rem; font-weight: 600; display: flex; align-items: center; gap: 6px;">
+          <span>✓ Email verified successfully.</span>
+        </div>
+      </div>
+
+      <!-- Factor 2: Mobile Number OTP Verification -->
+      <div id="card-phone-verification" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: var(--radius-lg); padding: 1.25rem; margin-bottom: 1.5rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+          <div>
+            <div style="font-weight: 600; font-size: 0.95rem; color: #f8fafc; display: flex; align-items: center; gap: 6px;">
+              <span>📱 Mobile Verification (Alternative)</span>
+            </div>
+            <div id="verify-phone-display" style="font-size: 0.8rem; color: #94a3b8; margin-top: 2px;">+91 ******1234</div>
+          </div>
+          <span id="badge-phone-status" class="badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); font-size: 0.75rem; padding: 4px 8px; border-radius: 999px;">Pending</span>
+        </div>
+
+        <div id="section-phone-input">
+          <p style="font-size: 0.8rem; color: #cbd5e1; margin-bottom: 0.75rem;">Enter the 6-digit SMS OTP sent to your phone:</p>
+          <div style="display: flex; gap: 8px; margin-bottom: 0.75rem;">
+            <input type="text" id="input-phone-otp" class="form-control-custom" placeholder="123456" maxlength="6" pattern="[0-9]{6}" style="letter-spacing: 4px; font-size: 1.1rem; text-align: center; font-family: monospace; font-weight: 700;">
+            <button type="button" id="btn-verify-phone" class="btn-primary-custom" style="padding: 0.6rem 1.25rem; white-space: nowrap;">
+              <span>Verify Mobile</span>
+            </button>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.775rem;">
+            <span style="color: var(--text-muted);">Didn't receive SMS?</span>
+            <button type="button" id="btn-resend-phone-otp" style="background: none; border: none; color: #38bdf8; cursor: pointer; text-decoration: underline; font-size: 0.775rem; padding: 0;">Resend SMS Code</button>
+          </div>
+        </div>
+
+        <div id="section-phone-completed" style="display: none; color: #34d399; font-size: 0.85rem; font-weight: 600; display: flex; align-items: center; gap: 6px;">
+          <span>✓ Mobile number verified successfully.</span>
+        </div>
+      </div>
+
+      <!-- Account Fully Activated Box -->
+      <div id="section-activation-complete" style="display: none; text-align: center; padding: 1.25rem; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); border-radius: var(--radius-lg); margin-bottom: 1.25rem;">
+        <div style="font-size: 2rem; margin-bottom: 0.5rem;">🎉</div>
+        <h3 style="color: #34d399; font-size: 1.15rem; margin-bottom: 0.35rem;">Account Activated!</h3>
+        <p style="color: #cbd5e1; font-size: 0.85rem; margin-bottom: 1rem;">Your account is now verified and active. You can proceed to your AI-protected payment dashboard.</p>
+        <a href="/login?verified=1" class="btn-primary-custom" style="display: inline-block; width: 100%; text-align: center; text-decoration: none;">
+          <span>Proceed to Sign In</span>
+        </a>
+      </div>
+
+      <div style="text-align: center; margin-top: 1rem; font-size: 0.825rem; color: var(--text-muted);">
+        Return to <a href="/login" style="font-weight: 600;">Sign In</a>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/js/auth.js"></script>
+{% endblock %}

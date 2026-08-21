@@ -2,11 +2,16 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Base directory of the project
+# Base directory of the backend
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Load environment variables from .env file
-load_dotenv(BASE_DIR / ".env")
+# Load environment variables from .env file (supports back-end/.env and root/.env)
+if (BASE_DIR / ".env").exists():
+    load_dotenv(BASE_DIR / ".env")
+elif (BASE_DIR.parent / ".env").exists():
+    load_dotenv(BASE_DIR.parent / ".env")
+else:
+    load_dotenv()
 
 
 class Config:
@@ -24,11 +29,14 @@ class Config:
     DB_USER = os.getenv("DB_USER", "fraud_app_user")
     DB_PASSWORD = os.getenv("DB_PASSWORD", "change-me")
 
-    # MySQL database URI with fallback to SQLite for local development / testing if MySQL is unavailable
-    SQLALCHEMY_DATABASE_URI = os.getenv(
-        "DATABASE_URL",
-        f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-    )
+    # Database URI with postgresql scheme normalization and explicit DATABASE_URL support
+    raw_db_url = os.getenv("DATABASE_URL")
+    if raw_db_url:
+        if raw_db_url.startswith("postgres://"):
+            raw_db_url = raw_db_url.replace("postgres://", "postgresql://", 1)
+        SQLALCHEMY_DATABASE_URI = raw_db_url
+    else:
+        SQLALCHEMY_DATABASE_URI = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     # ML Artifact Paths

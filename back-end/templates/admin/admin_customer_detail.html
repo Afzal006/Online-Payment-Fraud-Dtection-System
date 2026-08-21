@@ -1,0 +1,244 @@
+{% extends "admin/admin_base.html" %}
+
+{% block title %}Customer Profile #{{ customer_id }} - FraudShield SOC{% endblock %}
+
+{% block content %}
+<!-- Back Navigation & Header -->
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+  <div>
+    <div style="margin-bottom: 0.5rem;">
+      <a href="/admin/customers" style="color: #60A5FA; text-decoration: none; font-size: 0.85rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.35rem;">
+        <span>←</span> Back to Customer Directory
+      </a>
+    </div>
+    <h1 style="font-size: 1.75rem; color: #fff; margin-bottom: 0.25rem;">
+      Customer Profile: <span id="cust-header-name" style="color: #60A5FA;">Loading...</span>
+    </h1>
+    <p style="color: var(--text-muted); font-size: 0.875rem;">
+      Comprehensive payment identity, beneficiary trust graph, financial ledger, and individual security risk profile.
+    </p>
+  </div>
+
+  <div style="display: flex; gap: 0.5rem; align-items: center;">
+    <span id="cust-status-badge" class="badge-risk badge-risk-low" style="font-size: 0.85rem; padding: 0.4rem 0.85rem;">
+      ACTIVE
+    </span>
+  </div>
+</div>
+
+<!-- Customer Profile & Payment Identity Card -->
+<div class="glass-card" style="margin-bottom: 1.5rem; padding: 1.5rem; border-left: 4px solid #3B82F6;">
+  <h3 style="font-size: 1.1rem; color: #fff; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+    <span>👤</span> Customer Payment Identity & Account Metadata
+  </h3>
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.25rem; font-size: 0.9rem;">
+    <div>
+      <span style="color: var(--text-dim); font-size: 0.8rem; text-transform: uppercase; font-weight: 600;">Account ID:</span>
+      <div id="cust-account-id-display" style="font-weight: 700; color: #60A5FA; font-size: 1.1rem; font-family: monospace;">FS-100001</div>
+    </div>
+    <div>
+      <span style="color: var(--text-dim); font-size: 0.8rem; text-transform: uppercase; font-weight: 600;">Full Name:</span>
+      <div id="cust-name-display" style="font-weight: 700; color: #fff;">--</div>
+    </div>
+    <div>
+      <span style="color: var(--text-dim); font-size: 0.8rem; text-transform: uppercase; font-weight: 600;">Primary UPI ID:</span>
+      <div id="cust-upi-display" style="font-weight: 600; color: var(--primary); font-family: monospace;">--</div>
+    </div>
+    <div>
+      <span style="color: var(--text-dim); font-size: 0.8rem; text-transform: uppercase; font-weight: 600;">Phone Number:</span>
+      <div id="cust-phone-display" style="font-weight: 600; color: #CBD5E1;">--</div>
+    </div>
+    <div>
+      <span style="color: var(--text-dim); font-size: 0.8rem; text-transform: uppercase; font-weight: 600;">Account Balance:</span>
+      <div id="cust-balance-display" style="font-weight: 800; color: #34D399; font-size: 1.1rem; font-family: monospace;">₹0.00</div>
+    </div>
+    <div>
+      <span style="color: var(--text-dim); font-size: 0.8rem; text-transform: uppercase; font-weight: 600;">Email Address:</span>
+      <div id="cust-email-display" style="font-weight: 600; color: #CBD5E1;">--</div>
+    </div>
+  </div>
+</div>
+
+<!-- Saved Beneficiaries Directory for this Customer -->
+<div class="glass-card" style="margin-bottom: 1.75rem;">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+    <h3 style="font-size: 1.1rem; color: #fff; display: flex; align-items: center; gap: 0.5rem;">
+      <span>👥</span> Customer's Saved Beneficiaries (<span id="cust-b-count">0</span>)
+    </h3>
+  </div>
+
+  <div id="cust-beneficiaries-list" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0.75rem;">
+    <!-- Populated via admin_customer_detail.js -->
+  </div>
+  <div id="cust-beneficiaries-empty" style="text-align: center; padding: 1.5rem; color: var(--text-dim); display: none;">
+    No saved beneficiaries associated with this account.
+  </div>
+</div>
+
+<!-- Transaction Summary Metrics -->
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; margin-bottom: 1.75rem;">
+  <div class="kpi-card">
+    <div class="kpi-title">Total Transactions</div>
+    <div id="summary-total-tx" class="kpi-value" style="font-size: 1.5rem; color: #60A5FA;">0</div>
+    <div class="kpi-subtitle">Lifetime transactions</div>
+  </div>
+
+  <div class="kpi-card">
+    <div class="kpi-title">Total Transacted</div>
+    <div id="summary-total-vol" class="kpi-value" style="font-size: 1.5rem; color: #34D399;">₹0.00</div>
+    <div class="kpi-subtitle">Cumulative volume</div>
+  </div>
+
+  <div class="kpi-card">
+    <div class="kpi-title">Approved Tx</div>
+    <div id="summary-approved-tx" class="kpi-value" style="font-size: 1.5rem; color: #34D399;">0</div>
+    <div class="kpi-subtitle">Auto & verified</div>
+  </div>
+
+  <div class="kpi-card">
+    <div class="kpi-title">2FA OTP Challenges</div>
+    <div id="summary-otp-tx" class="kpi-value" style="font-size: 1.5rem; color: #FBBF24;">0</div>
+    <div class="kpi-subtitle">Step-up verifications</div>
+  </div>
+
+  <div class="kpi-card">
+    <div class="kpi-title">High-Risk Flags</div>
+    <div id="summary-highrisk-tx" class="kpi-value" style="font-size: 1.5rem; color: #EF4444;">0</div>
+    <div class="kpi-subtitle">Risk score ≥ 71</div>
+  </div>
+
+  <div class="kpi-card">
+    <div class="kpi-title">Open Alerts</div>
+    <div id="summary-alerts-count" class="kpi-value" style="font-size: 1.5rem; color: #F87171;">0</div>
+    <div class="kpi-subtitle">Pending SOC triage</div>
+  </div>
+</div>
+
+<!-- Customer Transaction History Table -->
+<div class="glass-card">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.5rem;">
+    <div>
+      <h3 style="font-size: 1.15rem; color: #fff;">Customer Transaction History</h3>
+      <p style="font-size: 0.8rem; color: var(--text-muted);">
+        All financial transfers, fraud probabilities, rule scores, and risk classifications for this account.
+      </p>
+    </div>
+  </div>
+
+  <div class="table-responsive-custom">
+    <table class="table-custom">
+      <thead>
+        <tr>
+          <th>Tx ID</th>
+          <th>Type</th>
+          <th>Amount (₹)</th>
+          <th>Destination</th>
+          <th>Balance After</th>
+          <th>ML Prob</th>
+          <th>Rule Score</th>
+          <th>Risk Score</th>
+          <th>Risk Tier</th>
+          <th>Status</th>
+          <th>Timestamp</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="customer-tx-tbody">
+        <!-- Populated dynamically via admin_customer_detail.js -->
+      </tbody>
+    </table>
+  </div>
+
+  <div id="customer-tx-empty" style="text-align: center; padding: 3rem 1rem; color: var(--text-muted); display: none;">
+    <div style="font-size: 2rem; margin-bottom: 0.5rem;">💳</div>
+    <p>This customer has not initiated any transactions yet.</p>
+  </div>
+</div>
+
+<!-- Global Transaction Deep-Investigation Modal -->
+<div id="tx-modal-overlay" class="modal-overlay">
+  <div class="modal-box" style="max-width: 780px; max-height: 90vh; overflow-y: auto;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 0.75rem;">
+      <div>
+        <h3 style="font-size: 1.3rem; color: #fff; display: flex; align-items: center; gap: 0.5rem;">
+          <span>🔍</span> SOC Transaction Audit #<span id="modal-tx-id">--</span>
+        </h3>
+        <p style="font-size: 0.8rem; color: var(--text-muted);">Full machine learning telemetry, risk factor decomposition, and security audit log.</p>
+      </div>
+      <button class="btn-secondary-custom" style="padding: 0.35rem 0.75rem; font-size: 0.85rem;" onclick="closeTxModal()">✕</button>
+    </div>
+
+    <!-- Section 1: Customer & Tx Information -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem;">
+      <div class="glass-card" style="padding: 1rem;">
+        <h4 style="font-size: 0.8rem; color: var(--text-dim); text-transform: uppercase; margin-bottom: 0.5rem;">Customer Account</h4>
+        <div style="font-weight: 700; color: #fff;" id="modal-user-name">--</div>
+        <div style="font-size: 0.85rem; color: #94A3B8;" id="modal-user-email">--</div>
+        <div style="font-size: 0.75rem; color: var(--text-dim); margin-top: 0.25rem;">Customer ID: #<span id="modal-user-id">--</span></div>
+      </div>
+
+      <div class="glass-card" style="padding: 1rem;">
+        <h4 style="font-size: 0.8rem; color: var(--text-dim); text-transform: uppercase; margin-bottom: 0.5rem;">Transaction Summary</h4>
+        <div style="font-weight: 700; color: #34D399; font-size: 1.2rem;" id="modal-tx-amount">₹0.00</div>
+        <div style="font-size: 0.85rem; color: #E2E8F0;">Type: <strong id="modal-tx-type">--</strong> | Dest: <strong id="modal-tx-dest">--</strong></div>
+        <div style="font-size: 0.75rem; color: var(--text-dim); margin-top: 0.25rem;">Timestamp: <span id="modal-tx-time">--</span></div>
+      </div>
+    </div>
+
+    <!-- Section 2: Hybrid Risk Decomposition -->
+    <div class="glass-card" style="padding: 1rem; margin-bottom: 1.25rem;">
+      <h4 style="font-size: 0.8rem; color: var(--text-dim); text-transform: uppercase; margin-bottom: 0.75rem;">Hybrid Risk Engine Evaluation</h4>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem; text-align: center; margin-bottom: 0.75rem;">
+        <div style="padding: 0.5rem; background: rgba(59, 130, 246, 0.1); border-radius: var(--radius-sm);">
+          <div style="font-size: 0.7rem; color: var(--text-dim);">ML Fraud Prob</div>
+          <div id="modal-ml-prob" style="font-size: 1.2rem; font-weight: 700; color: #60A5FA;">--%</div>
+        </div>
+        <div style="padding: 0.5rem; background: rgba(245, 158, 11, 0.1); border-radius: var(--radius-sm);">
+          <div style="font-size: 0.7rem; color: var(--text-dim);">Rule Policy Score</div>
+          <div id="modal-rule-score" style="font-size: 1.2rem; font-weight: 700; color: #FBBF24;">--/100</div>
+        </div>
+        <div style="padding: 0.5rem; background: rgba(239, 68, 68, 0.1); border-radius: var(--radius-sm);">
+          <div style="font-size: 0.7rem; color: var(--text-dim);">Final Risk Score</div>
+          <div id="modal-final-score" style="font-size: 1.2rem; font-weight: 800; color: #fff;">--/100</div>
+        </div>
+        <div style="padding: 0.5rem; background: rgba(255, 255, 255, 0.05); border-radius: var(--radius-sm);">
+          <div style="font-size: 0.7rem; color: var(--text-dim);">Risk Tier / Status</div>
+          <div id="modal-risk-tier-status" style="font-size: 0.9rem; font-weight: 700; color: #fff; margin-top: 0.2rem;">--</div>
+        </div>
+      </div>
+      <div style="font-size: 0.85rem; color: #CBD5E1; line-height: 1.4; border-top: 1px solid var(--border-glass); padding-top: 0.5rem;">
+        <strong>Decision:</strong> <span id="modal-tx-decision" style="color: #60A5FA;">--</span>
+      </div>
+    </div>
+
+    <!-- Section 3: Explainability Narrative -->
+    <div class="glass-card" style="padding: 1rem; margin-bottom: 1.25rem; border-left: 3px solid #EF4444;">
+      <h4 style="font-size: 0.8rem; color: #EF4444; text-transform: uppercase; margin-bottom: 0.4rem;">Investigation & Explainability Narrative</h4>
+      <p id="modal-narrative" style="font-size: 0.85rem; color: #E2E8F0; line-height: 1.4; margin: 0;">--</p>
+    </div>
+
+    <!-- Section 4: Security Alert Resolution Record (If Applicable) -->
+    <div id="modal-alert-box" class="glass-card" style="padding: 1rem; margin-bottom: 1.25rem; display: none;">
+      <h4 style="font-size: 0.8rem; color: #F59E0B; text-transform: uppercase; margin-bottom: 0.5rem;">Security Alert & Resolution Record</h4>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; font-size: 0.85rem;">
+        <div>Alert Status: <strong id="modal-alert-status">--</strong></div>
+        <div>Severity: <strong id="modal-alert-severity">--</strong></div>
+        <div>Resolved By: <span id="modal-alert-resolver">--</span></div>
+        <div>Resolution Notes: <span id="modal-alert-notes" style="color: #34D399;">--</span></div>
+      </div>
+    </div>
+
+    <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+      <button type="button" class="btn-secondary-custom" onclick="openShapFromModal()">Open SHAP TreeExplainer</button>
+      <button type="button" class="btn-primary-custom" onclick="closeTxModal()">Close</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  window.CURRENT_CUSTOMER_ID = {{ customer_id }};
+</script>
+<script src="/static/js/admin/admin_customer_detail.js"></script>
+{% endblock %}

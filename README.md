@@ -101,33 +101,37 @@ Online digital payment ecosystems (UPI, P2P Transfers, Merchant QR Payments, Car
 
 ```
 Online-Payment-Fraud-Dtection-System/
-├── app/
-│   ├── config.py                     # Configuration loader & risk threshold definitions
-│   ├── extensions.py                 # SQLAlchemy, Migrate, JWT, CORS instances
-│   ├── models/                       # Database models (User, Transaction, Alert, OTP, etc.)
-│   ├── providers/                    # SMTP email & SMS providers
-│   ├── routes/                       # REST API blueprints (Auth, Payments, Admin, SOC)
-│   ├── services/                     # Business logic, Risk Signal engine, SHAP service
-│   └── utils/                        # Security middleware, rate limiters, structured logging
-├── database/
-│   ├── init_db.py                    # Database table initialization
-│   └── seed_db.py                    # Idempotent demo and account seeding
-├── docs/                             # Architecture diagrams, specifications, live runbooks
-├── frontend/
-│   ├── static/                       # Custom CSS design system, modular JS controllers
-│   └── templates/                    # Jinja2 HTML templates (Dashboard, Payment, Login, etc.)
-├── ml/
-│   ├── artifacts/                    # Serialized model, preprocessor, and feature names
-│   ├── feature_engineering.py        # Financial domain feature transformations
-│   ├── preprocessing.py              # Data cleaning and scaling pipeline
-│   ├── train.py                      # Candidate model training & evaluation
-│   └── explain.py                    # SHAP explainer generator
-├── tests/                            # 484 comprehensive pytest test suites
-├── .env.example                      # Template for environment configuration
+├── front-end/
+│   ├── templates/                    # Jinja2 HTML templates (Dashboard, Payment, Login, Admin, etc.)
+│   ├── static/                       # Custom Glassmorphism CSS design system, modular JS controllers
+│   ├── public/                       # Frontend vector icons and SVG assets
+│   ├── src/                          # UI components and client stylesheets
+│   ├── index.html                    # Frontend portal entrypoint
+│   ├── package.json                  # Frontend manifest
+│   └── vite.config.js                # Frontend build configuration
+│
+├── back-end/
+│   ├── app/                          # Flask REST API core application package
+│   │   ├── config.py                 # Configuration loader & risk threshold definitions
+│   │   ├── extensions.py             # SQLAlchemy, Migrate, JWT, CORS instances
+│   │   ├── models/                   # Database models (User, Transaction, Alert, OTP, etc.)
+│   │   ├── providers/                # SMTP email & SMS providers
+│   │   ├── routes/                   # REST API blueprints (Auth, Payments, Admin, SOC)
+│   │   ├── services/                 # Business logic, Risk Signal engine, SHAP service
+│   │   └── utils/                    # Security middleware, rate limiters, structured logging
+│   ├── database/                     # Schema initialization and account seeding scripts
+│   ├── docs/                         # Architecture diagrams, specifications, live runbooks
+│   ├── ml/                           # Trained models, preprocessors, feature engineering, SHAP
+│   ├── tests/                        # 484 comprehensive pytest test suites
+│   ├── scripts/                      # Utility scripts (verification, live testing, backup)
+│   ├── dataset/                      # Dataset setup guides & metadata
+│   ├── requirements.txt              # Python dependencies
+│   ├── run.py                        # Backend application entrypoint
+│   └── .env.example                  # Backend environment template
+│
+├── .env.example                      # Root environment configuration template
 ├── .gitignore                        # Standard rules ignoring secrets, caches, and temp files
-├── requirements.txt                  # Python dependencies
-├── run.py                            # Flask application entrypoint
-└── README.md                         # Project documentation
+└── README.md                         # Master documentation
 ```
 
 ---
@@ -158,50 +162,59 @@ source venv/bin/activate
 ### Step 3: Install Dependencies
 ```bash
 pip install --upgrade pip
-pip install -r requirements.txt
+pip install -r back-end/requirements.txt
 ```
 
 ### Step 4: Configure Environment Variables
-Copy `.env.example` to `.env` and adjust settings as required:
+Copy `.env.example` to `back-end/.env` (or root `.env`) and adjust settings:
 ```bash
 # Windows (PowerShell)
-Copy-Item .env.example .env
+Copy-Item .env.example back-end\.env
 
 # Linux / macOS
-cp .env.example .env
+cp .env.example back-end/.env
 ```
 
 *For live email OTP delivery, set `MAIL_PROVIDER=smtp`, `MAIL_SERVER=smtp.gmail.com`, `MAIL_PORT=587`, `MAIL_USE_TLS=true`, `MAIL_USERNAME=your-email@gmail.com`, and `MAIL_PASSWORD=your-app-password`.*
 
 ### Step 5: Initialize the Database
 ```bash
+# Windows (PowerShell)
+cd back-end
 py -c "from app import create_app; from database.init_db import init_database; init_database(create_app())"
+cd ..
 ```
 
 ---
 
 ## 7. Running the Application
 
-Start the local Flask development server:
+Start the Flask application server:
 ```bash
+# Option A: From root directory
+py back-end/run.py
+
+# Option B: From back-end directory
+cd back-end
 py run.py
 ```
 
-* The application will start at **`http://127.0.0.1:5000`**.
-* Open **`http://127.0.0.1:5000/login`** in any modern web browser.
+* The application starts at **`http://127.0.0.1:5000`**.
+* Open **`http://127.0.0.1:5000/login`** in any modern web browser to access the FraudShield AI interface.
 
 ---
 
 ## 8. Running the Automated Test Suite
 
-FraudShield AI contains **484 automated unit, integration, and security tests** covering authentication, OTP generation, balance protection, ML inference, and SOC case workflows:
+FraudShield AI contains **484 automated unit, integration, and security tests**:
 
 ```bash
-# Run all tests
-py -m pytest -v
+# Run all tests from root
+py -m pytest back-end/tests -v
 
-# Run targeted authentication & risk tests
-py -m pytest tests/test_auth.py tests/test_risk_engine.py -v
+# Or run from back-end directory
+cd back-end
+py -m pytest tests -v
 ```
 
 ---

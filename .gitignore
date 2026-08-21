@@ -52,6 +52,7 @@ node_modules/
 
 # Local databases / instance
 instance/
+back-end/instance/
 *.db
 *.sqlite
 *.sqlite3
@@ -60,10 +61,16 @@ instance/
 dataset/*.csv
 dataset/*.zip
 !dataset/.gitkeep
+back-end/dataset/*.csv
+back-end/dataset/*.zip
+!back-end/dataset/.gitkeep
 
 # Temporary / Scratch & Backup directories
 scratch/
 backups/
 logs/
 *.log
+back-end/scratch/
+back-end/backups/
+back-end/logs/
 

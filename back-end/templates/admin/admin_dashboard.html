@@ -1,0 +1,195 @@
+{% extends "admin/admin_base.html" %}
+
+{% block title %}SOC Overview - FraudShield Security Operations Center{% endblock %}
+
+{% block content %}
+<!-- Page Header -->
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.75rem; flex-wrap: wrap; gap: 1rem;">
+  <div>
+    <h1 style="font-size: 1.85rem; color: #fff; margin-bottom: 0.25rem;">Security Operations Center (SOC)</h1>
+    <p style="color: var(--text-muted); font-size: 0.9rem;">
+      Real-time transaction fraud telemetry, AI risk engine performance, and active incident response.
+    </p>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 0.75rem;">
+    <span class="badge-risk badge-risk-low" style="font-size: 0.85rem; padding: 0.4rem 0.85rem;">
+      🟢 System Status: Active
+    </span>
+  </div>
+</div>
+
+<!-- Primary Global KPI Grid -->
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem; margin-bottom: 1.5rem;">
+  <div class="kpi-card">
+    <div class="kpi-title">Total Customers</div>
+    <div id="kpi-total-customers" class="kpi-value" style="font-size: 1.7rem; color: #38BDF8;">0</div>
+    <div class="kpi-subtitle">Registered consumer accounts</div>
+  </div>
+
+  <div class="kpi-card">
+    <div class="kpi-title">Total Transactions</div>
+    <div id="kpi-total-tx" class="kpi-value" style="font-size: 1.7rem; color: #60A5FA;">0</div>
+    <div class="kpi-subtitle">Global ledger transactions</div>
+  </div>
+
+  <div class="kpi-card">
+    <div class="kpi-title">Total Transaction Value</div>
+    <div id="kpi-total-vol" class="kpi-value" style="font-size: 1.7rem; color: #34D399;">₹0.00</div>
+    <div class="kpi-subtitle">Global financial volume</div>
+  </div>
+
+  <div class="kpi-card">
+    <div class="kpi-title">Active Fraud Alerts</div>
+    <div id="kpi-open-alerts" class="kpi-value" style="font-size: 1.7rem; color: #EF4444;">0</div>
+    <div class="kpi-subtitle"><span id="kpi-resolved-alerts">0</span> resolved incidents</div>
+  </div>
+
+  <div class="kpi-card">
+    <div class="kpi-title">Average Risk Score</div>
+    <div id="kpi-avg-risk" class="kpi-value" style="font-size: 1.7rem; color: #A78BFA;">0.0</div>
+    <div class="kpi-subtitle">Fraud rate: <span id="kpi-fraud-rate" style="font-weight: 700; color: #EF4444;">0.0%</span></div>
+  </div>
+</div>
+
+<!-- Risk Tiers Distribution Counters -->
+<div class="glass-card" style="margin-bottom: 1.75rem; padding: 1.25rem;">
+  <div style="font-size: 0.8rem; color: var(--text-dim); text-transform: uppercase; font-weight: 700; margin-bottom: 0.75rem; letter-spacing: 0.05em;">
+    Global 4-Tier Risk Classification
+  </div>
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; text-align: center;">
+    <div style="padding: 0.85rem; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: var(--radius-md);">
+      <div style="font-size: 0.75rem; text-transform: uppercase; color: #34D399; font-weight: 700;">Low Risk (0-29)</div>
+      <div id="kpi-risk-low" style="font-size: 1.6rem; font-weight: 800; color: #fff; margin-top: 0.25rem;">0</div>
+      <div style="font-size: 0.75rem; color: var(--text-dim); margin-top: 0.2rem;">Immediate Auto-Approval</div>
+    </div>
+    <div style="padding: 0.85rem; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: var(--radius-md);">
+      <div style="font-size: 0.75rem; text-transform: uppercase; color: #60A5FA; font-weight: 700;">Medium Risk (30-59)</div>
+      <div id="kpi-risk-med" style="font-size: 1.6rem; font-weight: 800; color: #fff; margin-top: 0.25rem;">0</div>
+      <div style="font-size: 0.75rem; color: var(--text-dim); margin-top: 0.2rem;">Monitored Approval</div>
+    </div>
+    <div style="padding: 0.85rem; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: var(--radius-md);">
+      <div style="font-size: 0.75rem; text-transform: uppercase; color: #FBBF24; font-weight: 700;">High Risk (60-79)</div>
+      <div id="kpi-risk-high" style="font-size: 1.6rem; font-weight: 800; color: #fff; margin-top: 0.25rem;">0</div>
+      <div style="font-size: 0.75rem; color: var(--text-dim); margin-top: 0.2rem;">Step-Up OTP Challenge</div>
+    </div>
+    <div style="padding: 0.85rem; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: var(--radius-md);">
+      <div style="font-size: 0.75rem; text-transform: uppercase; color: #F87171; font-weight: 700;">Critical Risk (80-100)</div>
+      <div id="kpi-risk-critical" style="font-size: 1.6rem; font-weight: 800; color: #fff; margin-top: 0.25rem;">0</div>
+      <div style="font-size: 0.75rem; color: var(--text-dim); margin-top: 0.2rem;">SOC Alert & Review</div>
+    </div>
+  </div>
+</div>
+
+<!-- Interactive Chart.js Telemetry Grid -->
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 1.5rem; margin-bottom: 2rem;">
+  <!-- Chart 1: Volume by Type -->
+  <div class="glass-card">
+    <h3 style="font-size: 1rem; color: #fff; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+      <span>📊</span> Transaction Volume by Type
+    </h3>
+    <div style="height: 240px; position: relative;">
+      <canvas id="chart-volume-type"></canvas>
+    </div>
+  </div>
+
+  <!-- Chart 2: Risk Tier Distribution -->
+  <div class="glass-card">
+    <h3 style="font-size: 1rem; color: #fff; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+      <span>🎯</span> Risk Tier Distribution
+    </h3>
+    <div style="height: 240px; position: relative;">
+      <canvas id="chart-risk-distribution"></canvas>
+    </div>
+  </div>
+
+  <!-- Chart 3: Temporal Risk Trend -->
+  <div class="glass-card">
+    <h3 style="font-size: 1rem; color: #fff; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+      <span>📈</span> Risk Score Progression (0-100)
+    </h3>
+    <div style="height: 240px; position: relative;">
+      <canvas id="chart-trend"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- Model Performance & Statistical Drift Panel -->
+<div class="glass-card" style="margin-bottom: 2rem; border-left: 4px solid #3B82F6;">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+    <div>
+      <h3 style="font-size: 1.1rem; color: #fff;">Model Governance & Statistical Drift Telemetry</h3>
+      <p style="font-size: 0.8rem; color: var(--text-muted);">Active Machine Learning artifact version and live distribution divergence.</p>
+    </div>
+    <div>
+      <span id="drift-status-badge" class="badge-risk badge-risk-low">NORMAL</span>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; font-size: 0.85rem;">
+    <div>
+      <span style="color: var(--text-muted);">Model Engine:</span>
+      <div id="model-name-display" style="font-weight: 700; color: #fff;">Tuned Random Forest</div>
+    </div>
+    <div>
+      <span style="color: var(--text-muted);">Model Version:</span>
+      <div id="model-version-display" style="font-weight: 700; color: #60A5FA;">v1.0.0</div>
+    </div>
+    <div>
+      <span style="color: var(--text-muted);">Validation Precision:</span>
+      <div id="metric-precision" style="font-weight: 700; color: #34D399;">100.0%</div>
+    </div>
+    <div>
+      <span style="color: var(--text-muted);">Validation Recall:</span>
+      <div id="metric-recall" style="font-weight: 700; color: #34D399;">99.7%</div>
+    </div>
+  </div>
+
+  <div style="margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--border-glass); display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: var(--text-dim);">
+    <span id="drift-status-msg">Feature distributions align with reference validation baseline.</span>
+    <span id="drift-score-val" style="font-weight: 700; color: var(--text-muted);">Drift Divergence: 4.2%</span>
+  </div>
+</div>
+
+<!-- Active Security Alerts Table -->
+<div class="glass-card">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.5rem;">
+    <div>
+      <h3 style="font-size: 1.15rem; color: #fff;">Open Security Incidents Requiring Review</h3>
+      <p style="font-size: 0.8rem; color: var(--text-muted);">High-risk transactions flagged by the Hybrid AI Engine.</p>
+    </div>
+    <a href="/admin/alerts" class="btn-secondary-custom" style="padding: 0.4rem 0.85rem; font-size: 0.8rem;">
+      View Alert Center →
+    </a>
+  </div>
+
+  <div class="table-responsive-custom">
+    <table class="table-custom">
+      <thead>
+        <tr>
+          <th>Alert ID</th>
+          <th>Tx ID</th>
+          <th>Customer User</th>
+          <th>Amount (₹)</th>
+          <th>Risk Score</th>
+          <th>Status</th>
+          <th>Timestamp</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="admin-alerts-tbody">
+        <!-- Populated via admin_dashboard.js -->
+      </tbody>
+    </table>
+  </div>
+
+  <div id="admin-alerts-empty" style="text-align: center; padding: 2.5rem 1rem; color: var(--text-muted); display: none;">
+    <div style="font-size: 2rem; margin-bottom: 0.5rem;">🛡️</div>
+    <p>All security alerts are currently resolved. Zero open threats.</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/js/admin/admin_dashboard.js"></script>
+{% endblock %}

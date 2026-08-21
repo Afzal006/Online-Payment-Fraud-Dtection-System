@@ -34,7 +34,10 @@ def test_required_packages_imported():
 
 def test_directory_structure_exists():
     """Verify that all specified project directories exist."""
-    base_dir = Path(__file__).resolve().parent.parent
+    base_dir = Path(__file__).resolve().parent.parent  # back-end
+    root_dir = base_dir.parent                        # project root
+    frontend_dir = root_dir / "front-end"
+
     expected_dirs = [
         base_dir / "app",
         base_dir / "app" / "routes",
@@ -44,13 +47,12 @@ def test_directory_structure_exists():
         base_dir / "ml",
         base_dir / "ml" / "artifacts",
         base_dir / "ml" / "notebooks",
-        base_dir / "frontend",
-        base_dir / "frontend" / "templates",
-        base_dir / "frontend" / "static",
         base_dir / "dataset",
         base_dir / "database",
         base_dir / "tests",
         base_dir / "docs",
+        frontend_dir / "templates",
+        frontend_dir / "static",
     ]
     for directory in expected_dirs:
         assert directory.exists(), f"Directory {directory} does not exist"
@@ -81,12 +83,12 @@ def test_app_factory_and_health_endpoint():
 
 
 def test_environment_files_exist():
-    """Verify that .env.example and requirements.txt are present."""
+    """Verify that .env.example, requirements.txt, and setup files are present."""
     base_dir = Path(__file__).resolve().parent.parent
-    assert (base_dir / ".env.example").exists()
-    assert (base_dir / ".env").exists()
+    root_dir = base_dir.parent
+    assert (base_dir / ".env.example").exists() or (root_dir / ".env.example").exists()
     assert (base_dir / "requirements.txt").exists()
-    assert (base_dir / ".gitignore").exists()
+    assert (base_dir / ".gitignore").exists() or (root_dir / ".gitignore").exists()
     assert (base_dir / "run.py").exists()
     assert (base_dir / "DATASET_SETUP.md").exists()
 

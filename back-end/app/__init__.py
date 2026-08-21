@@ -9,13 +9,42 @@ from app.utils.security_middleware import setup_security_middleware
 from app.utils.logging_config import configure_structured_logging
 
 
+from pathlib import Path
+from werkzeug.middleware.proxy_fix import ProxyFix
+
+
 def create_app(config_name="development"):
     """Application factory initializing extensions, database models, and route blueprints."""
+    app_dir = Path(__file__).resolve().parent
+    backend_dir = app_dir.parent
+    root_dir = backend_dir.parent
+
+    possible_template_dirs = [
+        backend_dir / "templates",
+        app_dir / "templates",
+        root_dir / "front-end" / "templates",
+        backend_dir.parent / "front-end" / "templates",
+        backend_dir / "front-end" / "templates",
+    ]
+    template_folder = next((str(p) for p in possible_template_dirs if p.exists()), str(backend_dir / "templates"))
+
+    possible_static_dirs = [
+        backend_dir / "static",
+        app_dir / "static",
+        root_dir / "front-end" / "static",
+        backend_dir.parent / "front-end" / "static",
+        backend_dir / "front-end" / "static",
+    ]
+    static_folder = next((str(p) for p in possible_static_dirs if p.exists()), str(backend_dir / "static"))
+
     app = Flask(
         __name__,
-        template_folder="../frontend/templates",
-        static_folder="../frontend/static",
+        template_folder=template_folder,
+        static_folder=static_folder,
     )
+
+    # Support reverse proxies (e.g. Render / TLS termination)
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
     # Load configuration
     config_class = config_by_name.get(config_name, config_by_name["development"])
