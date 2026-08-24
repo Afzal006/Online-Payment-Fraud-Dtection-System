@@ -31,9 +31,16 @@ def health_check():
 
     email_provider_status = "not_configured"
     try:
-        from app.providers.email_provider import get_email_provider, SmtpEmailProvider, DevelopmentEmailProvider
+        from app.providers.email_provider import (
+            get_email_provider,
+            ResendEmailProvider,
+            SmtpEmailProvider,
+            DevelopmentEmailProvider,
+        )
         provider = get_email_provider()
-        if isinstance(provider, SmtpEmailProvider):
+        if isinstance(provider, ResendEmailProvider):
+            email_provider_status = "resend_configured" if provider.api_key else "resend_missing_key"
+        elif isinstance(provider, SmtpEmailProvider):
             email_provider_status = "smtp_configured"
         elif isinstance(provider, DevelopmentEmailProvider):
             email_provider_status = "development"
@@ -58,16 +65,35 @@ def health_check():
 @health_bp.route("/health/email", methods=["GET"])
 def health_email():
     """Diagnostic endpoint for email provider configuration and status without exposing secrets."""
-    from app.providers.email_provider import get_email_provider, SmtpEmailProvider, DevelopmentEmailProvider, NullEmailProvider
+    from app.providers.email_provider import (
+        get_email_provider,
+        ResendEmailProvider,
+        SmtpEmailProvider,
+        DevelopmentEmailProvider,
+        NullEmailProvider,
+    )
 
     provider = get_email_provider()
     provider_name = type(provider).__name__
 
-    if isinstance(provider, SmtpEmailProvider):
+    if isinstance(provider, ResendEmailProvider):
+        diag = provider.get_diagnostics()
+        return jsonify({
+            "status": "configured" if diag["api_key_configured"] else "not_configured",
+            "provider": provider_name,
+            "transport": diag["transport"],
+            "api_key_configured": diag["api_key_configured"],
+            "from_email": diag["from_email"],
+            "from_name": diag["from_name"],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "environment": current_app.config.get("FLASK_ENV", "development"),
+        }), 200
+    elif isinstance(provider, SmtpEmailProvider):
         diag = provider.get_diagnostics()
         return jsonify({
             "status": "configured" if (diag["smtp_host"] != "NOT_CONFIGURED") else "not_configured",
             "provider": provider_name,
+            "transport": "SMTP",
             "smtp_host": diag["smtp_host"],
             "smtp_port": diag["smtp_port"],
             "use_tls": diag["use_tls"],
@@ -82,7 +108,7 @@ def health_email():
         return jsonify({
             "status": "development",
             "provider": provider_name,
-            "description": "In-memory test simulation active. Set MAIL_PROVIDER=smtp and MAIL_SERVER for real SMTP delivery.",
+            "description": "In-memory test simulation active. Set EMAIL_PROVIDER=resend and RESEND_API_KEY for real email delivery.",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "environment": current_app.config.get("FLASK_ENV", "development"),
         }), 200
@@ -90,7 +116,7 @@ def health_email():
         return jsonify({
             "status": "not_configured",
             "provider": provider_name,
-            "description": "No active SMTP provider. Set MAIL_PROVIDER=smtp, MAIL_SERVER, MAIL_USERNAME, and MAIL_PASSWORD.",
+            "description": "No active email provider. Set EMAIL_PROVIDER=resend and RESEND_API_KEY.",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "environment": current_app.config.get("FLASK_ENV", "development"),
         }), 200

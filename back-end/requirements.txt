@@ -16,3 +16,4 @@ pytest>=8.3.2
 python-dotenv>=1.0.1
 matplotlib>=3.8.0
 gunicorn==23.0.0
+resend>=2.0.0

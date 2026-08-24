@@ -65,8 +65,17 @@ class Config:
     PASSWORD_RESET_MAX_ATTEMPTS = int(os.getenv("PASSWORD_RESET_MAX_ATTEMPTS", "5"))
     PASSWORD_RESET_DEV_MODE = os.getenv("PASSWORD_RESET_DEV_MODE", "false").lower() in ["true", "1", "yes"]
 
-    # Email & SMTP Delivery Configuration (Phase 5 & 7.1)
-    MAIL_PROVIDER = os.getenv("MAIL_PROVIDER", os.getenv("EMAIL_PROVIDER", "development"))
+    # Email Delivery Configuration (Resend HTTPS API / SMTP / Development)
+    EMAIL_PROVIDER = os.getenv("EMAIL_PROVIDER", os.getenv("MAIL_PROVIDER", "development"))
+    MAIL_PROVIDER = EMAIL_PROVIDER
+
+    # Resend HTTPS API Settings (Primary Production Transport)
+    RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+    RESEND_FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", os.getenv("MAIL_DEFAULT_SENDER", os.getenv("SMTP_FROM_EMAIL", os.getenv("EMAIL_FROM", "onboarding@resend.dev"))))
+    RESEND_FROM_NAME = os.getenv("RESEND_FROM_NAME", os.getenv("SMTP_FROM_NAME", "FraudShield AI Security"))
+    RESEND_REPLY_TO = os.getenv("RESEND_REPLY_TO", "")
+
+    # SMTP / Fallback Mail Server Settings
     SMTP_HOST = os.getenv("MAIL_SERVER", os.getenv("SMTP_HOST", os.getenv("SMTP_SERVER", "")))
     SMTP_PORT = int(os.getenv("MAIL_PORT", os.getenv("SMTP_PORT", "587")))
     SMTP_USERNAME = os.getenv("MAIL_USERNAME", os.getenv("SMTP_USERNAME", os.getenv("SMTP_USER", "")))
