@@ -124,3 +124,31 @@ def health_email():
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "environment": current_app.config.get("FLASK_ENV", "development"),
         }), 200
+
+
+@health_bp.route("/health/email/test", methods=["POST"])
+def health_email_test():
+    """Diagnostic endpoint to send a test email and return direct provider status/result."""
+    from flask import request
+    from app.providers.email_provider import get_email_provider
+
+    data = request.get_json() or {}
+    recipient = data.get("recipient") or data.get("email")
+    if not recipient:
+        return jsonify({
+            "error": "Please provide a 'recipient' or 'email' address in JSON body.",
+            "success": False,
+        }), 400
+
+    provider = get_email_provider()
+    provider_name = type(provider).__name__
+    success, err = provider.send_test_email(str(recipient).strip())
+
+    return jsonify({
+        "success": success,
+        "provider": provider_name,
+        "recipient": str(recipient).strip(),
+        "error": err,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }), (200 if success else 502)
+
