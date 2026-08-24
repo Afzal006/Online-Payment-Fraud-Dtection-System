@@ -92,13 +92,17 @@ document.addEventListener('DOMContentLoaded', () => {
   function startCountdown(buttonId, originalText, durationSec = 60) {
     const btn = document.getElementById(buttonId);
     if (!btn) return;
+    if (btn._countdownInterval) {
+      clearInterval(btn._countdownInterval);
+    }
     btn.disabled = true;
-    let remaining = durationSec;
+    let remaining = Math.max(1, parseInt(durationSec, 10) || 60);
     btn.textContent = `Resend in ${remaining}s`;
-    const interval = setInterval(() => {
+    btn._countdownInterval = setInterval(() => {
       remaining -= 1;
       if (remaining <= 0) {
-        clearInterval(interval);
+        clearInterval(btn._countdownInterval);
+        btn._countdownInterval = null;
         btn.disabled = false;
         btn.textContent = originalText;
       } else {
@@ -115,6 +119,10 @@ document.addEventListener('DOMContentLoaded', () => {
       alertBox.style.background = 'rgba(16, 185, 129, 0.15)';
       alertBox.style.border = '1px solid rgba(16, 185, 129, 0.4)';
       alertBox.style.color = '#34d399';
+    } else if (type === 'info') {
+      alertBox.style.background = 'rgba(56, 189, 248, 0.15)';
+      alertBox.style.border = '1px solid rgba(56, 189, 248, 0.4)';
+      alertBox.style.color = '#38bdf8';
     } else {
       alertBox.style.background = 'rgba(239, 68, 68, 0.15)';
       alertBox.style.border = '1px solid rgba(239, 68, 68, 0.4)';
@@ -132,8 +140,8 @@ document.addEventListener('DOMContentLoaded', () => {
       if (stepVerifyContainer) stepVerifyContainer.style.display = 'block';
       const emailDisplay = document.getElementById('verify-email-display');
       if (emailDisplay) emailDisplay.textContent = targetEmail;
-      window.api.resendEmailVerification(targetEmail);
-      showToast('Loaded verification portal. Fresh verification code requested.', 'info');
+      startCountdown('btn-resend-email-otp', 'Resend Email Code', 60);
+      showVerifyHubAlert('Please enter the 6-digit verification code sent to your email.', 'info');
     }
 
     registerForm.addEventListener('submit', async (e) => {
@@ -301,13 +309,33 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnResendEmail) {
       btnResendEmail.addEventListener('click', async () => {
         if (!currentRegEmail) return;
-        const res = await window.api.resendEmailVerification(currentRegEmail);
-        if (res && res.ok) {
-          showToast('New verification code sent to your email.', 'success');
-          startCountdown('btn-resend-email-otp', 'Resend Email Code', 60);
-        } else {
-          const err = (res && res.data && res.data.error) || 'Failed to resend code.';
-          showVerifyHubAlert(err, 'error');
+        btnResendEmail.disabled = true;
+        const originalText = 'Resend Email Code';
+        btnResendEmail.textContent = 'Sending...';
+
+        try {
+          const res = await window.api.resendEmailVerification(currentRegEmail);
+          if (res && res.ok) {
+            showToast('New verification code sent to your email.', 'success');
+            showVerifyHubAlert('A fresh 6-digit verification code has been dispatched to your email.', 'success');
+            startCountdown('btn-resend-email-otp', originalText, 60);
+          } else {
+            const err = (res && res.data && res.data.error) || 'Failed to resend code.';
+            showVerifyHubAlert(err, 'error');
+
+            // If rate limited with seconds remaining, start countdown with parsed seconds
+            const match = err.match(/wait (\d+) second/i);
+            if (match && match[1]) {
+              startCountdown('btn-resend-email-otp', originalText, parseInt(match[1], 10));
+            } else {
+              btnResendEmail.disabled = false;
+              btnResendEmail.textContent = originalText;
+            }
+          }
+        } catch (e) {
+          btnResendEmail.disabled = false;
+          btnResendEmail.textContent = originalText;
+          showVerifyHubAlert('Network error while requesting verification code.', 'error');
         }
       });
     }
