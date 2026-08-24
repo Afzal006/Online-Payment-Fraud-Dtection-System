@@ -4,20 +4,25 @@ Email Provider Abstraction Layer for FraudShield AI.
 Provides modular email delivery services:
 - EmailProvider (Abstract Base Class)
 - DevelopmentEmailProvider (Secure logging + test in-memory storage)
-- SmtpEmailProvider (Standard SMTP / TLS delivery)
+- SmtpEmailProvider (Standard SMTP / TLS delivery with full error diagnostics)
 - NullEmailProvider (Production fallback when credentials are unconfigured)
 - get_email_provider() (Factory function)
 """
 
+import email.utils
+import logging
 import os
 import smtplib
 import socket
+import ssl
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 from flask import current_app
+
+logger = logging.getLogger(__name__)
 
 
 class EmailProvider(ABC):
@@ -74,6 +79,20 @@ class EmailProvider(ABC):
         """
         pass
 
+    @abstractmethod
+    def send_test_email(
+        self,
+        recipient_email: str,
+        test_message: Optional[str] = None,
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Send a diagnostic test email to verify SMTP functionality.
+
+        Returns:
+            (success: bool, error_message: Optional[str])
+        """
+        pass
+
 
 class DevelopmentEmailProvider(EmailProvider):
     """
@@ -85,7 +104,7 @@ class DevelopmentEmailProvider(EmailProvider):
     - Logs delivery details to server logger without exposing credentials.
     """
 
-    _sent_emails: List[Dict[str, any]] = []
+    _sent_emails: List[Dict[str, Any]] = []
 
     def send_password_reset_email(
         self,
@@ -189,8 +208,23 @@ class DevelopmentEmailProvider(EmailProvider):
 
         return True, None
 
+    def send_test_email(
+        self,
+        recipient_email: str,
+        test_message: Optional[str] = None,
+    ) -> Tuple[bool, Optional[str]]:
+        clean_email = str(recipient_email).strip().lower()
+        record = {
+            "type": "TEST_EMAIL",
+            "recipient_email": clean_email,
+            "test_message": test_message or "Diagnostic test message",
+            "dispatched_at": datetime.now(timezone.utc),
+        }
+        self.__class__._sent_emails.append(record)
+        return True, None
+
     @classmethod
-    def get_last_email(cls, recipient_email: Optional[str] = None) -> Optional[Dict[str, any]]:
+    def get_last_email(cls, recipient_email: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Retrieve the last captured email, optionally filtered by recipient."""
         if not cls._sent_emails:
             return None
@@ -241,13 +275,13 @@ class SmtpEmailProvider(EmailProvider):
     
     Configured via environment variables:
     - MAIL_PROVIDER / EMAIL_PROVIDER: 'smtp'
-    - SMTP_HOST / SMTP_SERVER
-    - SMTP_PORT (default 587, or 465 for SSL)
-    - SMTP_USERNAME / SMTP_USER
-    - SMTP_PASSWORD
-    - SMTP_USE_TLS (default True)
-    - SMTP_USE_SSL (default False, True if port 465)
-    - SMTP_FROM_EMAIL / EMAIL_FROM / MAIL_DEFAULT_SENDER
+    - MAIL_SERVER / SMTP_HOST / SMTP_SERVER
+    - MAIL_PORT / SMTP_PORT (default 587, or 465 for SSL)
+    - MAIL_USERNAME / SMTP_USERNAME / SMTP_USER
+    - MAIL_PASSWORD / SMTP_PASSWORD
+    - MAIL_USE_TLS / SMTP_USE_TLS (default True)
+    - MAIL_USE_SSL / SMTP_USE_SSL (default False, True if port 465)
+    - MAIL_DEFAULT_SENDER / SMTP_FROM_EMAIL / EMAIL_FROM
     - SMTP_FROM_NAME
     """
 
@@ -262,16 +296,20 @@ class SmtpEmailProvider(EmailProvider):
         from_email: Optional[str] = None,
         from_name: Optional[str] = None,
     ):
-        self.host = (
+        raw_host = (
             host
             or (current_app.config.get("SMTP_HOST") if current_app else None)
+            or (current_app.config.get("MAIL_SERVER") if current_app else None)
             or os.environ.get("MAIL_SERVER")
             or os.environ.get("SMTP_HOST")
             or os.environ.get("SMTP_SERVER")
         )
+        self.host = str(raw_host).strip() if raw_host else None
+
         raw_port = (
             port
             or (current_app.config.get("SMTP_PORT") if current_app else None)
+            or (current_app.config.get("MAIL_PORT") if current_app else None)
             or os.environ.get("MAIL_PORT")
             or os.environ.get("SMTP_PORT")
             or 587
@@ -281,20 +319,25 @@ class SmtpEmailProvider(EmailProvider):
         except (ValueError, TypeError):
             self.port = 587
 
-        self.username = (
+        raw_user = (
             username
             or (current_app.config.get("SMTP_USERNAME") if current_app else None)
+            or (current_app.config.get("MAIL_USERNAME") if current_app else None)
             or os.environ.get("MAIL_USERNAME")
             or os.environ.get("SMTP_USERNAME")
             or os.environ.get("SMTP_USER")
         )
-        self.password = (
+        self.username = str(raw_user).strip() if raw_user else None
+
+        raw_pass = (
             password
             or (current_app.config.get("SMTP_PASSWORD") if current_app else None)
+            or (current_app.config.get("MAIL_PASSWORD") if current_app else None)
             or os.environ.get("MAIL_PASSWORD")
             or os.environ.get("SMTP_PASSWORD")
         )
-        
+        self.password = str(raw_pass).strip().strip('"').strip("'") if raw_pass else None
+
         # Determine SSL vs TLS
         if use_ssl is not None:
             self.use_ssl = use_ssl
@@ -328,15 +371,170 @@ class SmtpEmailProvider(EmailProvider):
             or os.environ.get("MAIL_DEFAULT_SENDER")
             or os.environ.get("SMTP_FROM_EMAIL")
             or os.environ.get("EMAIL_FROM")
-            or "security@fraudshield.ai"
+            or (self.username if (self.username and "@" in self.username) else "security@fraudshield.ai")
         )
-        self.from_name = (
+        # Parse clean address
+        parsed_addr = email.utils.parseaddr(raw_from)[1]
+        self.from_email = parsed_addr if parsed_addr else str(raw_from).strip()
+
+        raw_from_name = (
             from_name
             or (current_app.config.get("SMTP_FROM_NAME") if current_app else None)
             or os.environ.get("SMTP_FROM_NAME")
             or "FraudShield AI Security"
         )
-        self.from_email = raw_from
+        self.from_name = str(raw_from_name).strip()
+
+    def get_diagnostics(self) -> Dict[str, Any]:
+        """Return safe configuration status without exposing credentials."""
+        return {
+            "provider": "SmtpEmailProvider",
+            "smtp_host": self.host or "NOT_CONFIGURED",
+            "smtp_port": self.port,
+            "use_tls": self.use_tls,
+            "use_ssl": self.use_ssl,
+            "username_configured": bool(self.username),
+            "password_configured": bool(self.password),
+            "sender_configured": bool(self.from_email),
+            "sender_address": self.from_email or "NOT_CONFIGURED",
+        }
+
+    def _send_smtp_message(
+        self,
+        recipient_email: str,
+        subject: str,
+        text_body: str,
+        html_body: str,
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Execute the standard RFC 5322 / SMTP sequence:
+        1. Connect to host:port with socket timeout
+        2. EHLO
+        3. STARTTLS (if TLS enabled)
+        4. EHLO (post-STARTTLS)
+        5. AUTH LOGIN
+        6. sendmail
+        7. QUIT
+        """
+        if not self.host:
+            err = "SMTP host is not configured."
+            if current_app:
+                current_app.logger.warning("[SMTP] %s", err)
+            return False, err
+
+        clean_recipient = str(recipient_email).strip().lower()
+
+        # Build MIME Message
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = f"{self.from_name} <{self.from_email}>" if self.from_name else self.from_email
+        msg["To"] = clean_recipient
+        msg["Reply-To"] = self.from_email
+        msg["Date"] = email.utils.formatdate(localtime=True)
+        msg["Message-ID"] = email.utils.make_msgid(domain="fraudshield.ai")
+
+        msg.attach(MIMEText(text_body, "plain", "utf-8"))
+        msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+        diag = self.get_diagnostics()
+        if current_app:
+            current_app.logger.info(
+                "[SMTP] Dispatching email: host=%s, port=%d, tls=%s, ssl=%s, user_configured=%s, pass_configured=%s, from=%s, to=%s",
+                diag["smtp_host"],
+                diag["smtp_port"],
+                diag["use_tls"],
+                diag["use_ssl"],
+                diag["username_configured"],
+                diag["password_configured"],
+                diag["sender_address"],
+                clean_recipient,
+            )
+
+        server = None
+        try:
+            if self.use_ssl:
+                server = smtplib.SMTP_SSL(self.host, self.port, timeout=25)
+                server.ehlo()
+            else:
+                server = smtplib.SMTP(self.host, self.port, timeout=25)
+                server.ehlo()
+                if self.use_tls:
+                    server.starttls()
+                    server.ehlo()
+
+            if self.username and self.password:
+                # Handle Google App Passwords if internal spaces were preserved
+                pwd = self.password
+                if "gmail" in str(self.host).lower():
+                    pwd = pwd.replace(" ", "")
+                server.login(self.username, pwd)
+
+            envelope_from = email.utils.parseaddr(self.from_email)[1] or self.from_email
+            server.sendmail(envelope_from, [clean_recipient], msg.as_string())
+
+            if current_app:
+                current_app.logger.info(
+                    "[SMTP] Email successfully dispatched to %s (Subject: '%s')",
+                    clean_recipient,
+                    subject,
+                )
+            return True, None
+
+        except smtplib.SMTPAuthenticationError as exc:
+            err_msg = f"SMTPAuthenticationError: Authentication failed ({exc.smtp_code}: {exc.smtp_error.decode('utf-8', errors='ignore') if isinstance(exc.smtp_error, bytes) else str(exc.smtp_error)})"
+            if current_app:
+                current_app.logger.error("[SMTP] Authentication failed: %s", err_msg)
+            return False, err_msg
+        except smtplib.SMTPServerDisconnected as exc:
+            err_msg = f"SMTPServerDisconnected: {str(exc) or 'Server unexpectedly disconnected'}"
+            if current_app:
+                current_app.logger.error("[SMTP] Server disconnected (%s:%s): %s", self.host, self.port, err_msg)
+            return False, err_msg
+        except smtplib.SMTPSenderRefused as exc:
+            err_msg = f"SMTPSenderRefused: Sender address rejected ({exc.smtp_code}: {exc.smtp_error})"
+            if current_app:
+                current_app.logger.error("[SMTP] Sender refused '%s': %s", self.from_email, err_msg)
+            return False, err_msg
+        except smtplib.SMTPRecipientsRefused as exc:
+            err_msg = f"SMTPRecipientsRefused: Recipient address rejected: {str(exc.recipients)}"
+            if current_app:
+                current_app.logger.error("[SMTP] Recipient refused '%s': %s", clean_recipient, err_msg)
+            return False, err_msg
+        except smtplib.SMTPConnectError as exc:
+            err_msg = f"SMTPConnectError: Connection to {self.host}:{self.port} failed ({exc.smtp_code}: {exc.smtp_error})"
+            if current_app:
+                current_app.logger.error("[SMTP] Connection error: %s", err_msg)
+            return False, err_msg
+        except ssl.SSLError as exc:
+            err_msg = f"SSLError: SSL/TLS handshake failed ({str(exc)})"
+            if current_app:
+                current_app.logger.error("[SMTP] SSL Error: %s", err_msg)
+            return False, err_msg
+        except (socket.timeout, TimeoutError) as exc:
+            err_msg = f"TimeoutError: Connection or read timed out connecting to {self.host}:{self.port}"
+            if current_app:
+                current_app.logger.error("[SMTP] Timeout error: %s", err_msg)
+            return False, err_msg
+        except OSError as exc:
+            err_msg = f"NetworkError (OSError): {str(exc)}"
+            if current_app:
+                current_app.logger.error("[SMTP] Network error connecting to %s:%s: %s", self.host, self.port, err_msg)
+            return False, err_msg
+        except Exception as exc:
+            exc_type = type(exc).__name__
+            err_msg = f"{exc_type}: {str(exc)}"
+            if current_app:
+                current_app.logger.error("[SMTP] Unexpected SMTP error (%s): %s", exc_type, err_msg)
+            return False, err_msg
+        finally:
+            if server is not None:
+                try:
+                    server.quit()
+                except Exception:
+                    try:
+                        server.close()
+                    except Exception:
+                        pass
 
     def send_password_reset_email(
         self,
@@ -345,9 +543,6 @@ class SmtpEmailProvider(EmailProvider):
         expires_at: Optional[datetime] = None,
         recipient_name: Optional[str] = None,
     ) -> Tuple[bool, Optional[str]]:
-        if not self.host:
-            return False, "SMTP host is not configured."
-
         clean_recipient = str(recipient_email).strip().lower()
         display_name = (recipient_name or "FraudShield User").strip()
 
@@ -391,45 +586,12 @@ class SmtpEmailProvider(EmailProvider):
 </body>
 </html>"""
 
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"] = f"{self.from_name} <{self.from_email}>" if self.from_name else self.from_email
-        msg["To"] = clean_recipient
-        msg["Reply-To"] = self.from_email
-        msg.attach(MIMEText(text_body, "plain"))
-        msg.attach(MIMEText(html_body, "html"))
-
-        try:
-            if self.use_ssl:
-                with smtplib.SMTP_SSL(self.host, self.port, timeout=20) as server:
-                    if self.username and self.password:
-                        server.login(self.username, self.password)
-                    server.sendmail(self.from_email, [clean_recipient], msg.as_string())
-            else:
-                with smtplib.SMTP(self.host, self.port, timeout=20) as server:
-                    server.ehlo()
-                    if self.use_tls:
-                        server.starttls()
-                        server.ehlo()
-                    if self.username and self.password:
-                        server.login(self.username, self.password)
-                    server.sendmail(self.from_email, [clean_recipient], msg.as_string())
-            return True, None
-        except smtplib.SMTPAuthenticationError:
-            err_msg = "SMTP authentication failed. Please verify email credentials."
-            if current_app:
-                current_app.logger.error("SMTP Authentication Error for %s: credentials rejected", self.username)
-            return False, err_msg
-        except (smtplib.SMTPConnectError, socket.timeout, ConnectionRefusedError, OSError) as exc:
-            err_msg = "Could not connect to SMTP server. Please check network and mail server settings."
-            if current_app:
-                current_app.logger.error("SMTP Connection Error (%s:%s): %s", self.host, self.port, str(exc))
-            return False, err_msg
-        except Exception as exc:
-            err_msg = "Failed to dispatch email. Please try again later."
-            if current_app:
-                current_app.logger.error("SMTP dispatch error: %s", str(exc))
-            return False, err_msg
+        return self._send_smtp_message(
+            recipient_email=clean_recipient,
+            subject=subject,
+            text_body=text_body,
+            html_body=html_body,
+        )
 
     def send_email_verification_otp(
         self,
@@ -439,9 +601,6 @@ class SmtpEmailProvider(EmailProvider):
         verification_url: Optional[str] = None,
         expires_in_minutes: int = 5,
     ) -> Tuple[bool, Optional[str]]:
-        if not self.host:
-            return False, "SMTP host is not configured."
-
         clean_recipient = str(recipient_email).strip().lower()
         display_name = (recipient_name or "FraudShield User").strip()
         clean_otp = str(otp_code).strip()
@@ -495,45 +654,12 @@ class SmtpEmailProvider(EmailProvider):
 </body>
 </html>"""
 
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"] = f"{self.from_name} <{self.from_email}>" if self.from_name else self.from_email
-        msg["To"] = clean_recipient
-        msg["Reply-To"] = self.from_email
-        msg.attach(MIMEText(text_body, "plain"))
-        msg.attach(MIMEText(html_body, "html"))
-
-        try:
-            if self.use_ssl:
-                with smtplib.SMTP_SSL(self.host, self.port, timeout=20) as server:
-                    if self.username and self.password:
-                        server.login(self.username, self.password)
-                    server.sendmail(self.from_email, [clean_recipient], msg.as_string())
-            else:
-                with smtplib.SMTP(self.host, self.port, timeout=20) as server:
-                    server.ehlo()
-                    if self.use_tls:
-                        server.starttls()
-                        server.ehlo()
-                    if self.username and self.password:
-                        server.login(self.username, self.password)
-                    server.sendmail(self.from_email, [clean_recipient], msg.as_string())
-            return True, None
-        except smtplib.SMTPAuthenticationError:
-            err_msg = "SMTP authentication failed. Please verify email credentials."
-            if current_app:
-                current_app.logger.error("SMTP Authentication Error for %s: credentials rejected", self.username)
-            return False, err_msg
-        except (smtplib.SMTPConnectError, socket.timeout, ConnectionRefusedError, OSError) as exc:
-            err_msg = "Could not connect to SMTP server. Please check network and mail server settings."
-            if current_app:
-                current_app.logger.error("SMTP Connection Error (%s:%s): %s", self.host, self.port, str(exc))
-            return False, err_msg
-        except Exception as exc:
-            err_msg = "Failed to dispatch email. Please try again later."
-            if current_app:
-                current_app.logger.error("SMTP dispatch error: %s", str(exc))
-            return False, err_msg
+        return self._send_smtp_message(
+            recipient_email=clean_recipient,
+            subject=subject,
+            text_body=text_body,
+            html_body=html_body,
+        )
 
     def send_transaction_otp(
         self,
@@ -544,9 +670,6 @@ class SmtpEmailProvider(EmailProvider):
         recipient_name: Optional[str] = None,
         expires_in_minutes: int = 3,
     ) -> Tuple[bool, Optional[str]]:
-        if not self.host:
-            return False, "SMTP host is not configured."
-
         clean_recipient = str(recipient_email).strip().lower()
         display_name = (recipient_name or "FraudShield User").strip()
         clean_otp = str(otp_code).strip()
@@ -594,45 +717,65 @@ class SmtpEmailProvider(EmailProvider):
 </body>
 </html>"""
 
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"] = f"{self.from_name} <{self.from_email}>" if self.from_name else self.from_email
-        msg["To"] = clean_recipient
-        msg["Reply-To"] = self.from_email
-        msg.attach(MIMEText(text_body, "plain"))
-        msg.attach(MIMEText(html_body, "html"))
+        return self._send_smtp_message(
+            recipient_email=clean_recipient,
+            subject=subject,
+            text_body=text_body,
+            html_body=html_body,
+        )
 
-        try:
-            if self.use_ssl:
-                with smtplib.SMTP_SSL(self.host, self.port, timeout=20) as server:
-                    if self.username and self.password:
-                        server.login(self.username, self.password)
-                    server.sendmail(self.from_email, [clean_recipient], msg.as_string())
-            else:
-                with smtplib.SMTP(self.host, self.port, timeout=20) as server:
-                    server.ehlo()
-                    if self.use_tls:
-                        server.starttls()
-                        server.ehlo()
-                    if self.username and self.password:
-                        server.login(self.username, self.password)
-                    server.sendmail(self.from_email, [clean_recipient], msg.as_string())
-            return True, None
-        except smtplib.SMTPAuthenticationError:
-            err_msg = "SMTP authentication failed. Please verify email credentials."
-            if current_app:
-                current_app.logger.error("SMTP Authentication Error for %s: credentials rejected", self.username)
-            return False, err_msg
-        except (smtplib.SMTPConnectError, socket.timeout, ConnectionRefusedError, OSError) as exc:
-            err_msg = "Could not connect to SMTP server. Please check network and mail server settings."
-            if current_app:
-                current_app.logger.error("SMTP Connection Error (%s:%s): %s", self.host, self.port, str(exc))
-            return False, err_msg
-        except Exception as exc:
-            err_msg = "Failed to dispatch email. Please try again later."
-            if current_app:
-                current_app.logger.error("SMTP dispatch error: %s", str(exc))
-            return False, err_msg
+    def send_test_email(
+        self,
+        recipient_email: str,
+        test_message: Optional[str] = None,
+    ) -> Tuple[bool, Optional[str]]:
+        clean_recipient = str(recipient_email).strip().lower()
+        subject = "FraudShield AI — SMTP Diagnostic Test"
+        timestamp_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        diag = self.get_diagnostics()
+
+        text_body = (
+            f"Hello,\n\n"
+            f"This is an automated diagnostic test email from FraudShield AI.\n\n"
+            f"Timestamp: {timestamp_str}\n"
+            f"SMTP Host: {diag.get('smtp_host')}\n"
+            f"SMTP Port: {diag.get('smtp_port')}\n"
+            f"TLS Enabled: {diag.get('use_tls')}\n"
+            f"SSL Enabled: {diag.get('use_ssl')}\n"
+            f"Sender Address: {diag.get('sender_address')}\n\n"
+            f"If you received this email, your FraudShield AI SMTP configuration is working correctly!\n\n"
+            f"FraudShield AI Security"
+        )
+
+        html_body = f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0b0f19; color: #e2e8f0; padding: 24px;">
+  <div style="max-width: 580px; margin: 0 auto; background: #111827; border-radius: 12px; padding: 32px; border: 1px solid #1f2937;">
+    <h2 style="color: #38bdf8; margin-top: 0;">🛡️ FraudShield AI — SMTP Diagnostic Test</h2>
+    <p style="color: #34d399; font-weight: 600; font-size: 16px;">✅ SMTP Send Succeeded!</p>
+    <p style="color: #94a3b8; font-size: 14px; line-height: 1.6;">
+      This diagnostic message confirms that your SMTP delivery channel is active, authenticated, and delivering real emails to inboxes.
+    </p>
+    <div style="background: #0f172a; border-radius: 8px; padding: 16px; border: 1px solid #1e293b; font-family: monospace; font-size: 13px; color: #cbd5e1; margin: 20px 0;">
+      <div><strong>Timestamp:</strong> {timestamp_str}</div>
+      <div><strong>Host:</strong> {diag.get('smtp_host')}</div>
+      <div><strong>Port:</strong> {diag.get('smtp_port')}</div>
+      <div><strong>TLS:</strong> {diag.get('use_tls')}</div>
+      <div><strong>SSL:</strong> {diag.get('use_ssl')}</div>
+      <div><strong>Sender:</strong> {diag.get('sender_address')}</div>
+    </div>
+    <p style="color: #64748b; font-size: 12px; margin-bottom: 0;">FraudShield AI Production Diagnostics</p>
+  </div>
+</body>
+</html>"""
+
+        return self._send_smtp_message(
+            recipient_email=clean_recipient,
+            subject=subject,
+            text_body=text_body,
+            html_body=html_body,
+        )
 
 
 class NullEmailProvider(EmailProvider):
@@ -677,6 +820,14 @@ class NullEmailProvider(EmailProvider):
             current_app.logger.warning("[NullEmailProvider] Attempted to send transaction OTP with no provider configured.")
         return False, msg
 
+    def send_test_email(
+        self,
+        recipient_email: str,
+        test_message: Optional[str] = None,
+    ) -> Tuple[bool, Optional[str]]:
+        msg = "Email delivery is not configured. Please configure SMTP credentials."
+        return False, msg
+
 
 def get_email_provider() -> EmailProvider:
     """
@@ -709,8 +860,12 @@ def get_email_provider() -> EmailProvider:
                 return DevelopmentEmailProvider()
 
             # If explicit SMTP_HOST / MAIL_SERVER in config, prefer SmtpEmailProvider
-            smtp_host = current_app.config.get("SMTP_HOST") or current_app.config.get("SMTP_SERVER")
-            if smtp_host and smtp_host.strip():
+            smtp_host = (
+                current_app.config.get("SMTP_HOST")
+                or current_app.config.get("MAIL_SERVER")
+                or current_app.config.get("SMTP_SERVER")
+            )
+            if smtp_host and str(smtp_host).strip():
                 return SmtpEmailProvider()
     except RuntimeError:
         pass
@@ -727,12 +882,12 @@ def get_email_provider() -> EmailProvider:
         return NullEmailProvider()
     if env_provider == "development":
         env_host = os.environ.get("MAIL_SERVER") or os.environ.get("SMTP_HOST") or os.environ.get("SMTP_SERVER")
-        if env_host and env_host.strip():
+        if env_host and str(env_host).strip():
             return SmtpEmailProvider()
         return DevelopmentEmailProvider()
 
     env_host = os.environ.get("MAIL_SERVER") or os.environ.get("SMTP_HOST") or os.environ.get("SMTP_SERVER")
-    if env_host and env_host.strip():
+    if env_host and str(env_host).strip():
         return SmtpEmailProvider()
 
     if os.environ.get("FLASK_ENV") in ("testing", "development") or os.environ.get("ENV") == "testing":

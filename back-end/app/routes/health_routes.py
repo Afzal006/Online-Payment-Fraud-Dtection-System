@@ -53,3 +53,44 @@ def health_check():
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "environment": current_app.config.get("FLASK_ENV", "development"),
     }), 200
+
+
+@health_bp.route("/health/email", methods=["GET"])
+def health_email():
+    """Diagnostic endpoint for email provider configuration and status without exposing secrets."""
+    from app.providers.email_provider import get_email_provider, SmtpEmailProvider, DevelopmentEmailProvider, NullEmailProvider
+
+    provider = get_email_provider()
+    provider_name = type(provider).__name__
+
+    if isinstance(provider, SmtpEmailProvider):
+        diag = provider.get_diagnostics()
+        return jsonify({
+            "status": "configured" if (diag["smtp_host"] != "NOT_CONFIGURED") else "not_configured",
+            "provider": provider_name,
+            "smtp_host": diag["smtp_host"],
+            "smtp_port": diag["smtp_port"],
+            "use_tls": diag["use_tls"],
+            "use_ssl": diag["use_ssl"],
+            "username_configured": diag["username_configured"],
+            "password_configured": diag["password_configured"],
+            "from_email": diag["sender_address"],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "environment": current_app.config.get("FLASK_ENV", "development"),
+        }), 200
+    elif isinstance(provider, DevelopmentEmailProvider):
+        return jsonify({
+            "status": "development",
+            "provider": provider_name,
+            "description": "In-memory test simulation active. Set MAIL_PROVIDER=smtp and MAIL_SERVER for real SMTP delivery.",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "environment": current_app.config.get("FLASK_ENV", "development"),
+        }), 200
+    else:
+        return jsonify({
+            "status": "not_configured",
+            "provider": provider_name,
+            "description": "No active SMTP provider. Set MAIL_PROVIDER=smtp, MAIL_SERVER, MAIL_USERNAME, and MAIL_PASSWORD.",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "environment": current_app.config.get("FLASK_ENV", "development"),
+        }), 200

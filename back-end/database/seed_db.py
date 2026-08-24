@@ -91,7 +91,7 @@ def seed_database(app=None, config_name: str = "development") -> bool:
             },
             {
                 "name": "SOC Admin Officer",
-                "email": os.environ.get("MAIL_USERNAME") or os.environ.get("MAIL_DEFAULT_SENDER") or "teamfraudsheildai@gmail.com",
+                "email": os.environ.get("MAIL_USERNAME") or os.environ.get("MAIL_DEFAULT_SENDER") or "teamfraudshieldai@gmail.com",
                 "password": demo_admin_password,
                 "role": "ADMIN",
                 "phone_number": "+91 98765 99999",
