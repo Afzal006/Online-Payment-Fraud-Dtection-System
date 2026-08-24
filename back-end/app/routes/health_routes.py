@@ -17,7 +17,8 @@ def health_check():
     try:
         db.session.execute(db.text("SELECT 1"))
     except Exception as e:
-        db_status = f"unhealthy: {str(e)}"
+        current_app.logger.error(f"Database health check failed: {str(e)}")
+        db_status = "unhealthy"
 
     ml_status = "loaded"
     model_version = "unknown"
@@ -25,7 +26,8 @@ def health_check():
         service = get_inference_service()
         model_version = service.metadata.get("model_version", "1.0.0")
     except Exception as e:
-        ml_status = f"unavailable: {str(e)}"
+        current_app.logger.error(f"ML engine health check failed: {str(e)}")
+        ml_status = "unavailable"
 
     email_provider_status = "not_configured"
     try:

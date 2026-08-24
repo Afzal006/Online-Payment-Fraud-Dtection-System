@@ -30,6 +30,24 @@ from app.models import (
 )
 
 
+def mask_db_url(url: str) -> str:
+    """Mask credentials in database URI for secure logging."""
+    if not url:
+        return "None"
+    try:
+        if "@" in url and "://" in url:
+            scheme, rest = url.split("://", 1)
+            if "@" in rest:
+                creds, host_part = rest.split("@", 1)
+                if ":" in creds:
+                    user = creds.split(":", 1)[0]
+                    return f"{scheme}://{user}:***@{host_part}"
+                return f"{scheme}://***@{host_part}"
+        return url
+    except Exception:
+        return "***"
+
+
 def init_database(app=None, config_name: str = "development") -> bool:
     """Initialize database tables and schema."""
     if app is None:
@@ -37,8 +55,10 @@ def init_database(app=None, config_name: str = "development") -> bool:
         app = create_app(env)
 
     with app.app_context():
+        raw_uri = app.config.get("SQLALCHEMY_DATABASE_URI", "")
+        masked_uri = mask_db_url(raw_uri)
         print(f"[*] Initializing database for environment '{app.config.get('FLASK_ENV', 'development')}'...")
-        print(f"[*] Database URI: {app.config.get('SQLALCHEMY_DATABASE_URI')}")
+        print(f"[*] Database target: {masked_uri}")
 
         db.create_all()
 
@@ -64,13 +84,13 @@ def init_database(app=None, config_name: str = "development") -> bool:
                     conn.execute(db.text("ALTER TABLE users ADD COLUMN account_balance FLOAT DEFAULT 100000.0"))
                 if "is_phone_verified" not in user_cols:
                     print("[*] Migrating users schema: adding column 'is_phone_verified'...")
-                    conn.execute(db.text("ALTER TABLE users ADD COLUMN is_phone_verified BOOLEAN DEFAULT 1"))
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN is_phone_verified BOOLEAN DEFAULT FALSE"))
                 if "is_active" not in user_cols:
                     print("[*] Migrating users schema: adding column 'is_active'...")
-                    conn.execute(db.text("ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT 1"))
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT TRUE"))
                 if "password_changed_at" not in user_cols:
                     print("[*] Migrating users schema: adding column 'password_changed_at'...")
-                    conn.execute(db.text("ALTER TABLE users ADD COLUMN password_changed_at DATETIME"))
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN password_changed_at TIMESTAMP"))
                 if "payment_pin_hash" not in user_cols:
                     print("[*] Migrating users schema: adding column 'payment_pin_hash'...")
                     conn.execute(db.text("ALTER TABLE users ADD COLUMN payment_pin_hash VARCHAR(255)"))
@@ -79,70 +99,70 @@ def init_database(app=None, config_name: str = "development") -> bool:
                     conn.execute(db.text("ALTER TABLE users ADD COLUMN pin_failed_attempts INTEGER DEFAULT 0"))
                 if "pin_locked_until" not in user_cols:
                     print("[*] Migrating users schema: adding column 'pin_locked_until'...")
-                    conn.execute(db.text("ALTER TABLE users ADD COLUMN pin_locked_until DATETIME"))
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN pin_locked_until TIMESTAMP"))
                 if "is_pin_set" not in user_cols:
                     print("[*] Migrating users schema: adding column 'is_pin_set'...")
-                    conn.execute(db.text("ALTER TABLE users ADD COLUMN is_pin_set BOOLEAN DEFAULT 0"))
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN is_pin_set BOOLEAN DEFAULT FALSE"))
                 if "payment_pin_updated_at" not in user_cols:
                     print("[*] Migrating users schema: adding column 'payment_pin_updated_at'...")
-                    conn.execute(db.text("ALTER TABLE users ADD COLUMN payment_pin_updated_at DATETIME"))
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN payment_pin_updated_at TIMESTAMP"))
                 if "phone_otp_hash" not in user_cols:
                     print("[*] Migrating users schema: adding column 'phone_otp_hash'...")
                     conn.execute(db.text("ALTER TABLE users ADD COLUMN phone_otp_hash VARCHAR(255)"))
                 if "phone_otp_expires_at" not in user_cols:
                     print("[*] Migrating users schema: adding column 'phone_otp_expires_at'...")
-                    conn.execute(db.text("ALTER TABLE users ADD COLUMN phone_otp_expires_at DATETIME"))
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN phone_otp_expires_at TIMESTAMP"))
                 if "phone_otp_attempts" not in user_cols:
                     print("[*] Migrating users schema: adding column 'phone_otp_attempts'...")
                     conn.execute(db.text("ALTER TABLE users ADD COLUMN phone_otp_attempts INTEGER DEFAULT 0"))
                 if "phone_verified_at" not in user_cols:
                     print("[*] Migrating users schema: adding column 'phone_verified_at'...")
-                    conn.execute(db.text("ALTER TABLE users ADD COLUMN phone_verified_at DATETIME"))
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN phone_verified_at TIMESTAMP"))
                 if "phone_otp_last_sent_at" not in user_cols:
                     print("[*] Migrating users schema: adding column 'phone_otp_last_sent_at'...")
-                    conn.execute(db.text("ALTER TABLE users ADD COLUMN phone_otp_last_sent_at DATETIME"))
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN phone_otp_last_sent_at TIMESTAMP"))
                 if "pin_reset_otp_hash" not in user_cols:
                     print("[*] Migrating users schema: adding column 'pin_reset_otp_hash'...")
                     conn.execute(db.text("ALTER TABLE users ADD COLUMN pin_reset_otp_hash VARCHAR(255)"))
                 if "pin_reset_otp_expires_at" not in user_cols:
                     print("[*] Migrating users schema: adding column 'pin_reset_otp_expires_at'...")
-                    conn.execute(db.text("ALTER TABLE users ADD COLUMN pin_reset_otp_expires_at DATETIME"))
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN pin_reset_otp_expires_at TIMESTAMP"))
                 if "pin_reset_otp_attempts" not in user_cols:
                     print("[*] Migrating users schema: adding column 'pin_reset_otp_attempts'...")
                     conn.execute(db.text("ALTER TABLE users ADD COLUMN pin_reset_otp_attempts INTEGER DEFAULT 0"))
                 if "pin_reset_otp_last_sent_at" not in user_cols:
                     print("[*] Migrating users schema: adding column 'pin_reset_otp_last_sent_at'...")
-                    conn.execute(db.text("ALTER TABLE users ADD COLUMN pin_reset_otp_last_sent_at DATETIME"))
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN pin_reset_otp_last_sent_at TIMESTAMP"))
                 if "pin_reset_request_count" not in user_cols:
                     print("[*] Migrating users schema: adding column 'pin_reset_request_count'...")
                     conn.execute(db.text("ALTER TABLE users ADD COLUMN pin_reset_request_count INTEGER DEFAULT 0"))
                 if "pin_reset_window_start" not in user_cols:
                     print("[*] Migrating users schema: adding column 'pin_reset_window_start'...")
-                    conn.execute(db.text("ALTER TABLE users ADD COLUMN pin_reset_window_start DATETIME"))
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN pin_reset_window_start TIMESTAMP"))
                 if "is_email_verified" not in user_cols:
                     print("[*] Migrating users schema: adding column 'is_email_verified'...")
-                    conn.execute(db.text("ALTER TABLE users ADD COLUMN is_email_verified BOOLEAN DEFAULT 1"))
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN is_email_verified BOOLEAN DEFAULT FALSE"))
                 if "email_verified_at" not in user_cols:
                     print("[*] Migrating users schema: adding column 'email_verified_at'...")
-                    conn.execute(db.text("ALTER TABLE users ADD COLUMN email_verified_at DATETIME"))
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN email_verified_at TIMESTAMP"))
                 if "email_verification_otp_hash" not in user_cols:
                     print("[*] Migrating users schema: adding column 'email_verification_otp_hash'...")
                     conn.execute(db.text("ALTER TABLE users ADD COLUMN email_verification_otp_hash VARCHAR(255)"))
                 if "email_verification_otp_expires_at" not in user_cols:
                     print("[*] Migrating users schema: adding column 'email_verification_otp_expires_at'...")
-                    conn.execute(db.text("ALTER TABLE users ADD COLUMN email_verification_otp_expires_at DATETIME"))
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN email_verification_otp_expires_at TIMESTAMP"))
                 if "email_verification_otp_attempts" not in user_cols:
                     print("[*] Migrating users schema: adding column 'email_verification_otp_attempts'...")
                     conn.execute(db.text("ALTER TABLE users ADD COLUMN email_verification_otp_attempts INTEGER DEFAULT 0"))
                 if "email_verification_last_sent_at" not in user_cols:
                     print("[*] Migrating users schema: adding column 'email_verification_last_sent_at'...")
-                    conn.execute(db.text("ALTER TABLE users ADD COLUMN email_verification_last_sent_at DATETIME"))
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN email_verification_last_sent_at TIMESTAMP"))
                 if "email_verification_token_hash" not in user_cols:
                     print("[*] Migrating users schema: adding column 'email_verification_token_hash'...")
                     conn.execute(db.text("ALTER TABLE users ADD COLUMN email_verification_token_hash VARCHAR(255)"))
                 if "account_status" not in user_cols:
                     print("[*] Migrating users schema: adding column 'account_status'...")
-                    conn.execute(db.text("ALTER TABLE users ADD COLUMN account_status VARCHAR(30) DEFAULT 'ACTIVE'"))
+                    conn.execute(db.text("ALTER TABLE users ADD COLUMN account_status VARCHAR(30) DEFAULT 'PENDING_VERIFICATION'"))
                 conn.commit()
 
         if "transactions" in table_names:
@@ -263,10 +283,10 @@ def init_database(app=None, config_name: str = "development") -> bool:
                     conn.execute(db.text("ALTER TABLE alerts ADD COLUMN assigned_to_id INTEGER"))
                 if "assigned_at" not in alert_cols:
                     print("[*] Migrating alerts schema: adding column 'assigned_at'...")
-                    conn.execute(db.text("ALTER TABLE alerts ADD COLUMN assigned_at DATETIME"))
+                    conn.execute(db.text("ALTER TABLE alerts ADD COLUMN assigned_at TIMESTAMP"))
                 if "acknowledged_at" not in alert_cols:
                     print("[*] Migrating alerts schema: adding column 'acknowledged_at'...")
-                    conn.execute(db.text("ALTER TABLE alerts ADD COLUMN acknowledged_at DATETIME"))
+                    conn.execute(db.text("ALTER TABLE alerts ADD COLUMN acknowledged_at TIMESTAMP"))
                 if "acknowledged_by" not in alert_cols:
                     print("[*] Migrating alerts schema: adding column 'acknowledged_by'...")
                     conn.execute(db.text("ALTER TABLE alerts ADD COLUMN acknowledged_by VARCHAR(100)"))
@@ -296,14 +316,14 @@ def init_database(app=None, config_name: str = "development") -> bool:
                             severity VARCHAR(20) NOT NULL, 
                             message TEXT NOT NULL, 
                             status VARCHAR(20) NOT NULL, 
-                            created_at DATETIME NOT NULL, 
-                            resolved_at DATETIME, 
+                            created_at TIMESTAMP NOT NULL, 
+                            resolved_at TIMESTAMP, 
                             notes TEXT, 
                             resolved_by VARCHAR(100), 
                             case_id INTEGER, 
                             assigned_to_id INTEGER, 
-                            assigned_at DATETIME, 
-                            acknowledged_at DATETIME, 
+                            assigned_at TIMESTAMP, 
+                            acknowledged_at TIMESTAMP, 
                             acknowledged_by VARCHAR(100), 
                             dedup_signature VARCHAR(64), 
                             correlation_count INTEGER DEFAULT 1, 
@@ -334,7 +354,7 @@ def init_database(app=None, config_name: str = "development") -> bool:
                     conn.execute(db.text("ALTER TABLE beneficiaries ADD COLUMN cooling_period_hours INTEGER DEFAULT 24"))
                 if "cooling_expires_at" not in ben_cols:
                     print("[*] Migrating beneficiaries schema: adding column 'cooling_expires_at'...")
-                    conn.execute(db.text("ALTER TABLE beneficiaries ADD COLUMN cooling_expires_at DATETIME"))
+                    conn.execute(db.text("ALTER TABLE beneficiaries ADD COLUMN cooling_expires_at TIMESTAMP"))
                 if "trust_status" not in ben_cols:
                     print("[*] Migrating beneficiaries schema: adding column 'trust_status'...")
                     conn.execute(db.text("ALTER TABLE beneficiaries ADD COLUMN trust_status VARCHAR(32) DEFAULT 'COOLING'"))
@@ -349,10 +369,10 @@ def init_database(app=None, config_name: str = "development") -> bool:
                     conn.execute(db.text("ALTER TABLE beneficiaries ADD COLUMN total_transferred_amount FLOAT DEFAULT 0.0"))
                 if "first_payment_at" not in ben_cols:
                     print("[*] Migrating beneficiaries schema: adding column 'first_payment_at'...")
-                    conn.execute(db.text("ALTER TABLE beneficiaries ADD COLUMN first_payment_at DATETIME"))
+                    conn.execute(db.text("ALTER TABLE beneficiaries ADD COLUMN first_payment_at TIMESTAMP"))
                 if "revoked_at" not in ben_cols:
                     print("[*] Migrating beneficiaries schema: adding column 'revoked_at'...")
-                    conn.execute(db.text("ALTER TABLE beneficiaries ADD COLUMN revoked_at DATETIME"))
+                    conn.execute(db.text("ALTER TABLE beneficiaries ADD COLUMN revoked_at TIMESTAMP"))
                 if "revocation_reason" not in ben_cols:
                     print("[*] Migrating beneficiaries schema: adding column 'revocation_reason'...")
                     conn.execute(db.text("ALTER TABLE beneficiaries ADD COLUMN revocation_reason VARCHAR(255)"))

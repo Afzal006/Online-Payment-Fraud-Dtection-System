@@ -31,10 +31,11 @@ class Config:
 
     # Database URI with postgresql scheme normalization and explicit DATABASE_URL support
     raw_db_url = os.getenv("DATABASE_URL")
-    if raw_db_url:
-        if raw_db_url.startswith("postgres://"):
-            raw_db_url = raw_db_url.replace("postgres://", "postgresql://", 1)
-        SQLALCHEMY_DATABASE_URI = raw_db_url
+    if raw_db_url and raw_db_url.strip():
+        clean_url = raw_db_url.strip()
+        if clean_url.startswith("postgres://"):
+            clean_url = clean_url.replace("postgres://", "postgresql://", 1)
+        SQLALCHEMY_DATABASE_URI = clean_url
     else:
         SQLALCHEMY_DATABASE_URI = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
     SQLALCHEMY_TRACK_MODIFICATIONS = False

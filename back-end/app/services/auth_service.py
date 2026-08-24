@@ -39,80 +39,88 @@ class AuthService:
         if not is_valid_email:
             return None, email_err
 
-        # Check for duplicate email
-        existing_user = User.query.filter_by(email=clean_email).first()
-        if existing_user:
-            if existing_user.account_status == "PENDING_VERIFICATION" and not existing_user.is_email_verified:
-                return None, "Email is already registered and pending verification. Please verify your account or sign in."
-            return None, "Email is already registered. An account with this email address already exists. Please login or reset your password."
+        try:
+            # Check for duplicate email
+            existing_user = User.query.filter_by(email=clean_email).first()
+            if existing_user:
+                if existing_user.account_status == "PENDING_VERIFICATION" and not existing_user.is_email_verified:
+                    return None, "Email is already registered and pending verification. Please verify your account or sign in."
+                return None, "Email is already registered. An account with this email address already exists. Please login or reset your password."
 
-        # Check and normalize mobile number
-        phone_digits = None
-        if phone_number and str(phone_number).strip():
-            is_valid_phone, phone_digits, phone_err = validate_phone_number(str(phone_number))
-            if not is_valid_phone:
-                return None, phone_err
+            # Check and normalize mobile number
+            phone_digits = None
+            if phone_number and str(phone_number).strip():
+                is_valid_phone, phone_digits, phone_err = validate_phone_number(str(phone_number))
+                if not is_valid_phone:
+                    return None, phone_err
 
-        user_role = role.upper() if role in ["USER", "ADMIN"] else "USER"
-        user = User(
-            name=clean_name,
-            email=clean_email,
-            phone_number=phone_digits,
-            role=user_role,
-            account_balance=100000.0 if user_role == "USER" else 0.0,
-            is_email_verified=False,
-            is_phone_verified=False,
-            is_active=False,
-            account_status="PENDING_VERIFICATION",
-        )
-        user.set_password(password)
-
-        db.session.add(user)
-        db.session.flush()  # Populates user.id
-
-        # Generate unique Customer Account ID and Primary UPI ID
-        user.customer_account_id = f"FS-{100000 + user.id}" if user_role == "USER" else f"FS-ADMIN-{user.id:02d}"
-        email_prefix = clean_email.split("@")[0].replace(".", "_").replace("+", "_")
-        user.primary_upi_id = f"{email_prefix}@fraudshield"
-
-        # 1. Generate & Dispatch Email Verification OTP and Direct Token
-        raw_email_otp = f"{secrets.randbelow(900000) + 100000}"
-        user.set_email_otp(raw_email_otp, expiry_seconds=300)
-        raw_email_token = secrets.token_urlsafe(32)
-        user.set_email_verification_token(raw_email_token, expiry_seconds=86400)
-
-        base_url = (
-            (current_app.config.get("APP_PUBLIC_URL") if current_app else None)
-            or os.environ.get("APP_PUBLIC_URL")
-            or "http://127.0.0.1:5000"
-        ).rstrip("/")
-        verification_url = f"{base_url}/api/auth/verify-email?token={raw_email_token}"
-
-        email_provider = get_email_provider()
-        email_ok, email_err = email_provider.send_email_verification_otp(
-            recipient_email=user.email,
-            otp_code=raw_email_otp,
-            recipient_name=user.name,
-            verification_url=verification_url,
-            expires_in_minutes=5,
-        )
-        if not email_ok:
-            current_app.logger.warning("Email verification OTP dispatch returned: %s", email_err)
-
-        # 2. If mobile number was provided, generate secure OTP and dispatch via SmsProvider
-        if phone_digits:
-            raw_phone_otp = f"{secrets.randbelow(900000) + 100000}"
-            user.set_phone_otp(raw_phone_otp, expiry_seconds=300)
-            sms_provider = get_sms_provider()
-            sms_ok, sms_err = sms_provider.send_otp(
-                phone_number=f"+91{phone_digits}",
-                otp_code=raw_phone_otp,
-                purpose="REGISTRATION"
+            user_role = role.upper() if role in ["USER", "ADMIN"] else "USER"
+            user = User(
+                name=clean_name,
+                email=clean_email,
+                phone_number=phone_digits,
+                role=user_role,
+                account_balance=100000.0 if user_role == "USER" else 0.0,
+                is_email_verified=False,
+                is_phone_verified=False,
+                is_active=False,
+                account_status="PENDING_VERIFICATION",
             )
-            if not sms_ok:
-                current_app.logger.warning("SMS OTP dispatch returned: %s", sms_err)
+            user.set_password(password)
 
-        db.session.commit()
+            db.session.add(user)
+            db.session.flush()  # Populates user.id
+
+            # Generate unique Customer Account ID and Primary UPI ID
+            user.customer_account_id = f"FS-{100000 + user.id}" if user_role == "USER" else f"FS-ADMIN-{user.id:02d}"
+            email_prefix = clean_email.split("@")[0].replace(".", "_").replace("+", "_")
+            user.primary_upi_id = f"{email_prefix}@fraudshield"
+
+            # 1. Generate & Dispatch Email Verification OTP and Direct Token
+            raw_email_otp = f"{secrets.randbelow(900000) + 100000}"
+            user.set_email_otp(raw_email_otp, expiry_seconds=300)
+            raw_email_token = secrets.token_urlsafe(32)
+            user.set_email_verification_token(raw_email_token, expiry_seconds=86400)
+
+            base_url = (
+                (current_app.config.get("APP_PUBLIC_URL") if current_app else None)
+                or os.environ.get("APP_PUBLIC_URL")
+                or "http://127.0.0.1:5000"
+            ).rstrip("/")
+            verification_url = f"{base_url}/api/auth/verify-email?token={raw_email_token}"
+
+            email_provider = get_email_provider()
+            email_ok, email_err = email_provider.send_email_verification_otp(
+                recipient_email=user.email,
+                otp_code=raw_email_otp,
+                recipient_name=user.name,
+                verification_url=verification_url,
+                expires_in_minutes=5,
+            )
+            if not email_ok and current_app:
+                current_app.logger.warning("Email verification OTP dispatch returned: %s", email_err)
+
+            # 2. If mobile number was provided, generate secure OTP and dispatch via SmsProvider
+            if phone_digits:
+                raw_phone_otp = f"{secrets.randbelow(900000) + 100000}"
+                user.set_phone_otp(raw_phone_otp, expiry_seconds=300)
+                sms_provider = get_sms_provider()
+                sms_ok, sms_err = sms_provider.send_otp(
+                    phone_number=f"+91{phone_digits}",
+                    otp_code=raw_phone_otp,
+                    purpose="REGISTRATION"
+                )
+                if not sms_ok and current_app:
+                    current_app.logger.warning("SMS OTP dispatch returned: %s", sms_err)
+
+            db.session.commit()
+        except Exception as db_exc:
+            db.session.rollback()
+            if current_app:
+                current_app.logger.error("Error during registration: %s", str(db_exc))
+            if "unique constraint" in str(db_exc).lower() or "duplicate" in str(db_exc).lower():
+                return None, "Email is already registered. An account with this email address already exists. Please login or reset your password."
+            return None, "Registration service temporarily unavailable. Please try again."
 
         # Audit Log Event
         AuditService.log_event(
@@ -520,8 +528,14 @@ class AuthService:
         from flask import has_request_context, request, g
         from app.services.device_trust_service import DeviceTrustService
 
-        clean_email = email.strip().lower()
-        user = User.query.filter_by(email=clean_email).first()
+        clean_email = email.strip().lower() if email else ""
+
+        try:
+            user = User.query.filter_by(email=clean_email).first()
+        except Exception as db_exc:
+            if current_app:
+                current_app.logger.error("Database lookup error during authentication: %s", str(db_exc))
+            return None, None, "Authentication service temporarily unavailable. Please try again."
 
         # Resolve device context
         resolved_ua = user_agent
@@ -538,31 +552,38 @@ class AuthService:
 
         dev_profile = None
         if user:
-            dev_profile, dev_trust_status, is_new_dev = DeviceTrustService.evaluate_or_register_device(
-                user_id=user.id,
-                user_agent=resolved_ua,
-                client_ip=resolved_ip,
-                client_telemetry=client_telemetry,
-                client_device_id=resolved_dev_id,
-            )
-
-            # Blocked device enforcement
-            if dev_trust_status == "BLOCKED":
-                AuditService.log_event(
-                    event_type="LOGIN_FAILED",
-                    actor=clean_email,
-                    action="POST /api/auth/login",
-                    result="DENIED",
+            try:
+                dev_profile, dev_trust_status, is_new_dev = DeviceTrustService.evaluate_or_register_device(
                     user_id=user.id,
-                    target_resource=f"DeviceProfile:{dev_profile.id}",
-                    severity="CRITICAL",
-                    details={"reason": "Access denied: Device profile is blocked"},
+                    user_agent=resolved_ua,
+                    client_ip=resolved_ip,
+                    client_telemetry=client_telemetry,
+                    client_device_id=resolved_dev_id,
                 )
-                return None, None, "Access from this device has been blocked for security reasons"
+
+                # Blocked device enforcement
+                if dev_trust_status == "BLOCKED":
+                    AuditService.log_event(
+                        event_type="LOGIN_FAILED",
+                        actor=clean_email,
+                        action="POST /api/auth/login",
+                        result="DENIED",
+                        user_id=user.id,
+                        target_resource=f"DeviceProfile:{dev_profile.id}",
+                        severity="CRITICAL",
+                        details={"reason": "Access denied: Device profile is blocked"},
+                    )
+                    return None, None, "Access from this device has been blocked for security reasons"
+            except Exception as dev_err:
+                if current_app:
+                    current_app.logger.warning("Device trust evaluation error: %s", str(dev_err))
 
         if not user or not user.check_password(password):
             if dev_profile:
-                DeviceTrustService.record_login_attempt(dev_profile.id, success=False)
+                try:
+                    DeviceTrustService.record_login_attempt(dev_profile.id, success=False)
+                except Exception:
+                    pass
 
             AuditService.log_event(
                 event_type="LOGIN_FAILED",
@@ -589,34 +610,46 @@ class AuthService:
 
         # Record successful login on device
         if dev_profile:
-            DeviceTrustService.record_login_attempt(dev_profile.id, success=True)
+            try:
+                DeviceTrustService.record_login_attempt(dev_profile.id, success=True)
+            except Exception:
+                pass
 
         # Record login geographic location
-        from app.services.geo_intelligence_service import GeoIntelligenceService
-        resolved_loc = location_payload
-        if not resolved_loc and has_request_context():
-            resolved_loc = {
-                "city": request.headers.get("X-Client-City"),
-                "country": request.headers.get("X-Client-Country"),
-            }
+        try:
+            from app.services.geo_intelligence_service import GeoIntelligenceService
+            resolved_loc = location_payload
+            if not resolved_loc and has_request_context():
+                resolved_loc = {
+                    "city": request.headers.get("X-Client-City"),
+                    "country": request.headers.get("X-Client-Country"),
+                }
 
-        geo_eval = GeoIntelligenceService.evaluate_event_location(
-            user_id=user.id,
-            client_ip=resolved_ip,
-            location_payload=resolved_loc,
-            event_type="LOGIN",
-            persist=True,
-        )
+            geo_eval = GeoIntelligenceService.evaluate_event_location(
+                user_id=user.id,
+                client_ip=resolved_ip,
+                location_payload=resolved_loc,
+                event_type="LOGIN",
+                persist=True,
+            )
+        except Exception as geo_err:
+            if current_app:
+                current_app.logger.warning("Geo intelligence evaluation error during login: %s", str(geo_err))
 
         # Generate JWT with user role in additional claims
-        access_token = create_access_token(
-            identity=str(user.id),
-            additional_claims={
-                "role": user.role,
-                "email": user.email,
-                "name": user.name,
-            },
-        )
+        try:
+            access_token = create_access_token(
+                identity=str(user.id),
+                additional_claims={
+                    "role": user.role,
+                    "email": user.email,
+                    "name": user.name,
+                },
+            )
+        except Exception as jwt_err:
+            if current_app:
+                current_app.logger.error("JWT creation failed during authentication: %s", str(jwt_err))
+            return None, None, "Token generation failure. Please try again."
 
         AuditService.log_event(
             event_type="LOGIN_SUCCESS",
@@ -717,50 +750,56 @@ class AuthService:
         now = datetime.now(timezone.utc)
         window_start = now - timedelta(minutes=window_minutes)
 
-        # Rate limiting: count requests by this user in the active window
-        recent_requests_count = PasswordResetToken.query.filter(
-            PasswordResetToken.user_id == user.id,
-            PasswordResetToken.created_at >= window_start,
-        ).count()
+        try:
+            # Rate limiting: count requests by this user in the active window
+            recent_requests_count = PasswordResetToken.query.filter(
+                PasswordResetToken.user_id == user.id,
+                PasswordResetToken.created_at >= window_start,
+            ).count()
 
-        if recent_requests_count >= max_requests:
-            AuditService.log_event(
-                event_type="PASSWORD_RESET_RATE_LIMITED",
-                actor=user.email,
-                action="POST /api/auth/forgot-password",
-                result="RATE_LIMITED",
+            if recent_requests_count >= max_requests:
+                AuditService.log_event(
+                    event_type="PASSWORD_RESET_RATE_LIMITED",
+                    actor=user.email,
+                    action="POST /api/auth/forgot-password",
+                    result="RATE_LIMITED",
+                    user_id=user.id,
+                    target_resource=f"User:{user.id}",
+                    severity="WARN",
+                    ip_address=remote_ip,
+                    details={"attempts_in_window": recent_requests_count},
+                )
+                return False, "Too many password reset requests. Please try again later."
+
+            # Invalidate any existing active/unused reset tokens for this user
+            active_tokens = PasswordResetToken.query.filter(
+                PasswordResetToken.user_id == user.id,
+                PasswordResetToken.used_at.is_(None),
+            ).all()
+            for tok in active_tokens:
+                tok.used_at = now
+
+            # Generate cryptographically secure token
+            raw_token = secrets.token_urlsafe(32)
+            token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+            expires_at = now + timedelta(minutes=expiry_minutes)
+
+            reset_record = PasswordResetToken(
                 user_id=user.id,
-                target_resource=f"User:{user.id}",
-                severity="WARN",
-                ip_address=remote_ip,
-                details={"attempts_in_window": recent_requests_count},
+                token_hash=token_hash,
+                expires_at=expires_at,
+                used_at=None,
+                attempt_count=0,
+                requested_ip=remote_ip,
+                created_at=now,
             )
-            return False, "Too many password reset requests. Please try again later."
-
-        # Invalidate any existing active/unused reset tokens for this user
-        active_tokens = PasswordResetToken.query.filter(
-            PasswordResetToken.user_id == user.id,
-            PasswordResetToken.used_at.is_(None),
-        ).all()
-        for tok in active_tokens:
-            tok.used_at = now
-
-        # Generate cryptographically secure token
-        raw_token = secrets.token_urlsafe(32)
-        token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
-        expires_at = now + timedelta(minutes=expiry_minutes)
-
-        reset_record = PasswordResetToken(
-            user_id=user.id,
-            token_hash=token_hash,
-            expires_at=expires_at,
-            used_at=None,
-            attempt_count=0,
-            requested_ip=remote_ip,
-            created_at=now,
-        )
-        db.session.add(reset_record)
-        db.session.commit()
+            db.session.add(reset_record)
+            db.session.commit()
+        except Exception as db_exc:
+            db.session.rollback()
+            if current_app:
+                current_app.logger.error("Error creating password reset record: %s", str(db_exc))
+            return False, "Unable to process password reset request. Please try again later."
 
         AuditService.log_event(
             event_type="PASSWORD_RESET_REQUESTED",
