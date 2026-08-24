@@ -65,11 +65,19 @@ class Config:
     PASSWORD_RESET_MAX_ATTEMPTS = int(os.getenv("PASSWORD_RESET_MAX_ATTEMPTS", "5"))
     PASSWORD_RESET_DEV_MODE = os.getenv("PASSWORD_RESET_DEV_MODE", "false").lower() in ["true", "1", "yes"]
 
-    # Email Delivery Configuration (Resend HTTPS API / SMTP / Development)
+    # =========================================================================
+    # Email Delivery Configuration (Brevo HTTPS / Resend HTTPS / SMTP / Dev)
+    # =========================================================================
     EMAIL_PROVIDER = os.getenv("EMAIL_PROVIDER", os.getenv("MAIL_PROVIDER", "development"))
     MAIL_PROVIDER = EMAIL_PROVIDER
 
-    # Resend HTTPS API Settings (Primary Production Transport)
+    # Brevo HTTPS REST API Settings (Primary recommended for domain-free Gmail sender)
+    BREVO_API_KEY = os.getenv("BREVO_API_KEY", os.getenv("MAIL_API_KEY", ""))
+    BREVO_FROM_EMAIL = os.getenv("BREVO_FROM_EMAIL", os.getenv("MAIL_DEFAULT_SENDER", os.getenv("SMTP_FROM_EMAIL", os.getenv("EMAIL_FROM", "teamfraudsheildai@gmail.com"))))
+    BREVO_FROM_NAME = os.getenv("BREVO_FROM_NAME", os.getenv("SMTP_FROM_NAME", "FraudShield AI Security"))
+    BREVO_REPLY_TO = os.getenv("BREVO_REPLY_TO", "")
+
+    # Resend HTTPS API Settings
     RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
     RESEND_FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", os.getenv("MAIL_DEFAULT_SENDER", os.getenv("SMTP_FROM_EMAIL", os.getenv("EMAIL_FROM", "onboarding@resend.dev"))))
     RESEND_FROM_NAME = os.getenv("RESEND_FROM_NAME", os.getenv("SMTP_FROM_NAME", "FraudShield AI Security"))
@@ -87,7 +95,7 @@ class Config:
     raw_ssl = os.getenv("MAIL_USE_SSL", os.getenv("SMTP_USE_SSL", "false"))
     SMTP_USE_SSL = str(raw_ssl).lower() in ["true", "1", "yes"]
 
-    SMTP_FROM_EMAIL = os.getenv("MAIL_DEFAULT_SENDER", os.getenv("SMTP_FROM_EMAIL", os.getenv("EMAIL_FROM", "security@fraudshield.ai")))
+    SMTP_FROM_EMAIL = os.getenv("MAIL_DEFAULT_SENDER", os.getenv("SMTP_FROM_EMAIL", os.getenv("EMAIL_FROM", "teamfraudsheildai@gmail.com")))
     SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "FraudShield AI Security")
     APP_PUBLIC_URL = os.getenv("APP_PUBLIC_URL", "")
 

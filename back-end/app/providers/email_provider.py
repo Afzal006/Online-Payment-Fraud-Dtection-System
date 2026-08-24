@@ -3,7 +3,8 @@ Email Provider Abstraction Layer for FraudShield AI.
 
 Provides modular email delivery services:
 - EmailProvider (Abstract Base Class)
-- ResendEmailProvider (Official Resend HTTPS REST API - primary production transport)
+- BrevoEmailProvider (Official Brevo HTTPS REST API - primary domain-free verified sender transport)
+- ResendEmailProvider (Official Resend HTTPS REST API - secondary HTTPS transport)
 - SmtpEmailProvider (Standard SMTP / TLS delivery - local/fallback transport)
 - DevelopmentEmailProvider (Secure logging + test in-memory storage)
 - NullEmailProvider (Production fallback when credentials are unconfigured)
@@ -93,6 +94,416 @@ class EmailProvider(ABC):
             (success: bool, error_message: Optional[str])
         """
         pass
+
+
+class BrevoEmailProvider(EmailProvider):
+    """
+    Official Brevo (formerly Sendinblue) HTTPS REST API Email Provider.
+
+    Communicates via outbound HTTPS (https://api.brevo.com/v3/smtp/email on port 443).
+    Bypasses PaaS SMTP port blocks (ports 25, 465, 587) on platforms like Render.
+    Allows verifying a single Gmail address (e.g. teamfraudsheildai@gmail.com) to send
+    transactional emails to arbitrary recipients without purchasing a custom domain.
+
+    Configured via environment variables:
+    - BREVO_API_KEY / MAIL_API_KEY: Brevo API Key (e.g. xkeysib-...)
+    - BREVO_FROM_EMAIL / MAIL_DEFAULT_SENDER: Verified sender address (e.g. teamfraudsheildai@gmail.com)
+    - BREVO_FROM_NAME / SMTP_FROM_NAME: Sender display name (default: 'FraudShield AI Security')
+    - BREVO_REPLY_TO: Optional reply-to address
+    """
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        from_email: Optional[str] = None,
+        from_name: Optional[str] = None,
+        reply_to: Optional[str] = None,
+    ):
+        raw_key = (
+            api_key
+            or (current_app.config.get("BREVO_API_KEY") if current_app else None)
+            or (current_app.config.get("MAIL_API_KEY") if current_app else None)
+            or os.environ.get("BREVO_API_KEY")
+            or os.environ.get("MAIL_API_KEY")
+            or ""
+        )
+        self.api_key = str(raw_key).strip().strip('"').strip("'")
+
+        raw_from = (
+            from_email
+            or (current_app.config.get("BREVO_FROM_EMAIL") if current_app else None)
+            or (current_app.config.get("MAIL_DEFAULT_SENDER") if current_app else None)
+            or os.environ.get("BREVO_FROM_EMAIL")
+            or os.environ.get("MAIL_DEFAULT_SENDER")
+            or os.environ.get("SMTP_FROM_EMAIL")
+            or os.environ.get("EMAIL_FROM")
+            or "teamfraudsheildai@gmail.com"
+        )
+        parsed_addr = email.utils.parseaddr(str(raw_from))[1]
+        self.from_email = parsed_addr if parsed_addr else str(raw_from).strip()
+
+        raw_from_name = (
+            from_name
+            or (current_app.config.get("BREVO_FROM_NAME") if current_app else None)
+            or (current_app.config.get("SMTP_FROM_NAME") if current_app else None)
+            or os.environ.get("BREVO_FROM_NAME")
+            or os.environ.get("SMTP_FROM_NAME")
+            or "FraudShield AI Security"
+        )
+        self.from_name = str(raw_from_name).strip()
+
+        raw_reply_to = (
+            reply_to
+            or (current_app.config.get("BREVO_REPLY_TO") if current_app else None)
+            or os.environ.get("BREVO_REPLY_TO")
+            or self.from_email
+        )
+        parsed_reply = email.utils.parseaddr(str(raw_reply_to))[1]
+        self.reply_to = parsed_reply if parsed_reply else str(raw_reply_to).strip()
+
+    def get_diagnostics(self) -> Dict[str, Any]:
+        """Return safe configuration status without exposing secrets."""
+        return {
+            "provider": "BrevoEmailProvider",
+            "transport": "HTTPS REST API (api.brevo.com:443)",
+            "api_key_configured": bool(self.api_key),
+            "from_email": self.from_email,
+            "from_name": self.from_name,
+            "reply_to": self.reply_to,
+        }
+
+    def _send_brevo_message(
+        self,
+        recipient_email: str,
+        subject: str,
+        text_body: str,
+        html_body: str,
+        recipient_name: Optional[str] = None,
+    ) -> Tuple[bool, Optional[str]]:
+        """Dispatch an email through the Brevo HTTPS REST API."""
+        if not self.api_key:
+            err = "BREVO_API_KEY (or MAIL_API_KEY) is not configured in environment variables."
+            if current_app:
+                current_app.logger.warning("[BREVO] %s", err)
+            return False, err
+
+        clean_recipient = str(recipient_email).strip().lower()
+        disp_name = (recipient_name or clean_recipient.split("@")[0]).strip()
+
+        if current_app:
+            current_app.logger.info(
+                "[BREVO] Dispatching email: from='%s <%s>', to='%s', subject='%s'",
+                self.from_name,
+                self.from_email,
+                clean_recipient,
+                subject,
+            )
+
+        try:
+            import requests
+
+            url = "https://api.brevo.com/v3/smtp/email"
+            payload: Dict[str, Any] = {
+                "sender": {"name": self.from_name, "email": self.from_email},
+                "to": [{"email": clean_recipient, "name": disp_name}],
+                "subject": subject,
+                "htmlContent": html_body,
+                "textContent": text_body,
+            }
+            if self.reply_to and self.reply_to != self.from_email:
+                payload["replyTo"] = {"email": self.reply_to}
+
+            headers = {
+                "api-key": self.api_key,
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            }
+
+            resp = requests.post(url, json=payload, headers=headers, timeout=15)
+
+            if resp.status_code in (200, 201, 202):
+                data = resp.json() if resp.content else {}
+                msg_id = data.get("messageId")
+                if current_app:
+                    current_app.logger.info(
+                        "[BREVO] SUCCESS: Email accepted by Brevo API for '%s' (Message ID: %s)",
+                        clean_recipient,
+                        msg_id,
+                    )
+                return True, None
+            else:
+                try:
+                    err_json = resp.json()
+                    raw_err = err_json.get("message") or err_json.get("code") or resp.text
+                except Exception:
+                    raw_err = resp.text[:200]
+                err_msg = f"HTTP {resp.status_code}: {raw_err}"
+                if current_app:
+                    current_app.logger.error(
+                        "[BREVO] FAILURE: Brevo API rejected email for '%s': %s",
+                        clean_recipient,
+                        err_msg,
+                    )
+                return False, err_msg
+        except Exception as exc:
+            err_msg = f"{type(exc).__name__}: {str(exc)}"
+            if current_app:
+                current_app.logger.error(
+                    "[BREVO] FAILURE: Request exception for '%s': %s",
+                    clean_recipient,
+                    err_msg,
+                )
+            return False, err_msg
+
+    def send_password_reset_email(
+        self,
+        recipient_email: str,
+        reset_url: str,
+        expires_at: Optional[datetime] = None,
+        recipient_name: Optional[str] = None,
+    ) -> Tuple[bool, Optional[str]]:
+        clean_recipient = str(recipient_email).strip().lower()
+        display_name = (recipient_name or "FraudShield User").strip()
+
+        subject = "FraudShield AI — Password Reset"
+        expiry_info = (
+            f"This link expires in 15 minutes (at {expires_at.strftime('%H:%M UTC')}) and can only be used once."
+            if expires_at
+            else "This link expires in 15 minutes and can only be used once."
+        )
+
+        text_body = (
+            f"Hello {display_name},\n\n"
+            f"We received a request to reset your FraudShield AI password.\n\n"
+            f"Reset Password:\n"
+            f"{reset_url}\n\n"
+            f"{expiry_info}\n\n"
+            f"If you did not request this reset, you can safely ignore this email.\n\n"
+            f"FraudShield AI Security Team"
+        )
+
+        html_body = f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #0b0f19; color: #e2e8f0; padding: 24px; margin: 0;">
+  <div style="max-width: 580px; margin: 0 auto; background: #111827; border-radius: 12px; padding: 36px; border: 1px solid #1f2937; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);">
+    <div style="display: flex; align-items: center; margin-bottom: 24px;">
+      <h2 style="color: #38bdf8; margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.5px;">🛡️ FraudShield AI</h2>
+    </div>
+    <p style="font-size: 16px; line-height: 1.6; color: #f3f4f6; margin-bottom: 12px;">Hello <strong>{display_name}</strong>,</p>
+    <p style="font-size: 15px; line-height: 1.6; color: #9ca3af; margin-bottom: 24px;">
+      We received a request to reset your FraudShield AI account password. Click the secure button below to choose a new password:
+    </p>
+    <div style="text-align: center; margin: 32px 0;">
+      <a href="{reset_url}" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #ffffff; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px; display: inline-block; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.4);">Reset Password</a>
+    </div>
+    <div style="background: #1f2937; border-radius: 8px; padding: 14px 18px; margin-bottom: 24px;">
+      <p style="font-size: 13px; color: #fbbf24; margin: 0;">
+        ⚠️ <strong>Security Notice:</strong> {expiry_info}
+      </p>
+    </div>
+    <p style="font-size: 13px; line-height: 1.5; color: #6b7280; border-top: 1px solid #1f2937; padding-top: 20px; margin-top: 28px;">
+      If you did not request this password reset, please ignore this message. Your account remains secure and your password will not be changed.
+    </p>
+  </div>
+</body>
+</html>"""
+
+        return self._send_brevo_message(
+            recipient_email=clean_recipient,
+            subject=subject,
+            text_body=text_body,
+            html_body=html_body,
+            recipient_name=display_name,
+        )
+
+    def send_email_verification_otp(
+        self,
+        recipient_email: str,
+        otp_code: str,
+        recipient_name: Optional[str] = None,
+        verification_url: Optional[str] = None,
+        expires_in_minutes: int = 5,
+    ) -> Tuple[bool, Optional[str]]:
+        clean_recipient = str(recipient_email).strip().lower()
+        display_name = (recipient_name or "FraudShield User").strip()
+        clean_otp = str(otp_code).strip()
+        formatted_otp = f"{clean_otp[:3]} {clean_otp[3:]}" if len(clean_otp) == 6 else clean_otp
+
+        subject = "FraudShield AI — Verify Your Email Address"
+
+        text_body = (
+            f"Hello {display_name},\n\n"
+            f"Thank you for registering with FraudShield AI.\n\n"
+            f"Your 6-digit email verification code is:\n"
+            f"{clean_otp}\n\n"
+            f"This code will expire in {expires_in_minutes} minutes.\n\n"
+        )
+        if verification_url:
+            text_body += f"Or verify directly by clicking:\n{verification_url}\n\n"
+        text_body += (
+            f"If you did not attempt to register an account, please disregard this message.\n\n"
+            f"FraudShield AI Security Team"
+        )
+
+        button_html = ""
+        if verification_url:
+            button_html = f"""
+            <div style="text-align: center; margin: 24px 0 16px 0;">
+              <p style="font-size: 14px; color: #9ca3af; margin-bottom: 12px;">Or verify your email directly with one click:</p>
+              <a href="{verification_url}" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px; display: inline-block;">Verify Email Address</a>
+            </div>
+            """
+
+        html_body = f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #0b0f19; color: #e2e8f0; padding: 24px; margin: 0;">
+  <div style="max-width: 580px; margin: 0 auto; background: #111827; border-radius: 12px; padding: 36px; border: 1px solid #1f2937; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);">
+    <div style="display: flex; align-items: center; margin-bottom: 24px;">
+      <h2 style="color: #38bdf8; margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.5px;">🛡️ FraudShield AI</h2>
+    </div>
+    <p style="font-size: 16px; line-height: 1.6; color: #f3f4f6; margin-bottom: 12px;">Hello <strong>{display_name}</strong>,</p>
+    <p style="font-size: 15px; line-height: 1.6; color: #9ca3af; margin-bottom: 24px;">
+      Thank you for creating an account with FraudShield AI. Please use the verification code below to confirm ownership of your email address:
+    </p>
+    <div style="text-align: center; margin: 32px 0;">
+      <div style="background: #1e293b; border: 2px dashed #0284c7; border-radius: 10px; display: inline-block; padding: 16px 36px;">
+        <span style="font-family: 'Courier New', Courier, monospace; font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #38bdf8;">{formatted_otp}</span>
+      </div>
+      <p style="font-size: 13px; color: #9ca3af; margin-top: 10px;">Expires in {expires_in_minutes} minutes</p>
+    </div>
+    {button_html}
+    <div style="background: #1f2937; border-radius: 8px; padding: 14px 18px; margin-top: 24px;">
+      <p style="font-size: 13px; color: #9ca3af; margin: 0;">
+        🔒 <strong>Security Tip:</strong> FraudShield AI representatives will never ask you for this one-time code. Do not share it with anyone.
+      </p>
+    </div>
+    <p style="font-size: 13px; line-height: 1.5; color: #6b7280; border-top: 1px solid #1f2937; padding-top: 20px; margin-top: 28px;">
+      If you did not request this verification, please safely ignore this email.
+    </p>
+  </div>
+</body>
+</html>"""
+
+        return self._send_brevo_message(
+            recipient_email=clean_recipient,
+            subject=subject,
+            text_body=text_body,
+            html_body=html_body,
+            recipient_name=display_name,
+        )
+
+    def send_transaction_otp(
+        self,
+        recipient_email: str,
+        otp_code: str,
+        transaction_id: int,
+        amount: Optional[float] = None,
+        recipient_name: Optional[str] = None,
+        expires_in_minutes: int = 3,
+    ) -> Tuple[bool, Optional[str]]:
+        clean_recipient = str(recipient_email).strip().lower()
+        display_name = (recipient_name or "FraudShield User").strip()
+        clean_otp = str(otp_code).strip()
+        formatted_otp = f"{clean_otp[:3]} {clean_otp[3:]}" if len(clean_otp) == 6 else clean_otp
+        amount_display = f"₹{amount:,.2f}" if amount is not None else "your payment"
+
+        subject = f"FraudShield AI — Transaction Verification OTP (Tx #{transaction_id})"
+
+        text_body = (
+            f"Hello {display_name},\n\n"
+            f"A payment transaction of {amount_display} (Transaction ID: #{transaction_id}) has been initiated and requires step-up security verification.\n\n"
+            f"Your Transaction OTP is:\n"
+            f"{clean_otp}\n\n"
+            f"This code will expire in {expires_in_minutes} minutes.\n\n"
+            f"If you did not authorize this payment, please immediately contact security and block your account.\n\n"
+            f"FraudShield AI Security Operations"
+        )
+
+        html_body = f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #0b0f19; color: #e2e8f0; padding: 24px; margin: 0;">
+  <div style="max-width: 580px; margin: 0 auto; background: #111827; border-radius: 12px; padding: 36px; border: 1px solid #1f2937; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);">
+    <div style="display: flex; align-items: center; margin-bottom: 24px;">
+      <h2 style="color: #38bdf8; margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.5px;">🛡️ FraudShield AI</h2>
+    </div>
+    <div style="background: #ef444415; border: 1px solid #ef444440; border-radius: 8px; padding: 12px 16px; margin-bottom: 20px;">
+      <p style="color: #f87171; margin: 0; font-size: 14px; font-weight: 600;">⚠️ Step-Up Security Challenge Required</p>
+    </div>
+    <p style="font-size: 16px; line-height: 1.6; color: #f3f4f6; margin-bottom: 12px;">Hello <strong>{display_name}</strong>,</p>
+    <p style="font-size: 15px; line-height: 1.6; color: #9ca3af; margin-bottom: 20px;">
+      A transaction of <strong>{amount_display}</strong> (ID: <code>#{transaction_id}</code>) triggered our adaptive fraud detection protocol. Please enter the one-time verification passcode below to confirm and authorize this transaction:
+    </p>
+    <div style="text-align: center; margin: 32px 0;">
+      <div style="background: #1e293b; border: 2px dashed #38bdf8; border-radius: 10px; display: inline-block; padding: 16px 36px;">
+        <span style="font-family: 'Courier New', Courier, monospace; font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #38bdf8;">{formatted_otp}</span>
+      </div>
+      <p style="font-size: 13px; color: #9ca3af; margin-top: 10px;">Valid for {expires_in_minutes} minutes</p>
+    </div>
+    <div style="background: #1f2937; border-radius: 8px; padding: 14px 18px; margin-top: 24px;">
+      <p style="font-size: 13px; color: #f87171; margin: 0;">
+        🚨 <strong>Didn't make this payment?</strong> Do not share this OTP. Immediately log in to lock your payment credentials.
+      </p>
+    </div>
+    <p style="font-size: 13px; line-height: 1.5; color: #6b7280; border-top: 1px solid #1f2937; padding-top: 20px; margin-top: 28px;">
+      FraudShield AI Real-Time Transaction Security Engine
+    </p>
+  </div>
+</body>
+</html>"""
+
+        return self._send_brevo_message(
+            recipient_email=clean_recipient,
+            subject=subject,
+            text_body=text_body,
+            html_body=html_body,
+            recipient_name=display_name,
+        )
+
+    def send_test_email(
+        self,
+        recipient_email: str,
+        test_message: Optional[str] = None,
+    ) -> Tuple[bool, Optional[str]]:
+        clean_recipient = str(recipient_email).strip().lower()
+        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        msg_text = test_message or "Your FraudShield AI email delivery configuration is working correctly."
+
+        subject = "FraudShield AI — Diagnostic Delivery Test (Brevo HTTPS API)"
+        text_body = (
+            f"FraudShield AI — Diagnostic Delivery Test\n\n"
+            f"{msg_text}\n\n"
+            f"Timestamp: {now_str}\n"
+            f"Provider:  Brevo HTTPS REST API (Port 443)\n"
+            f"Sender:    {self.from_name} <{self.from_email}>\n\n"
+            f"FraudShield AI Diagnostic Tool"
+        )
+
+        html_body = f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #0b0f19; color: #e2e8f0; padding: 24px; margin: 0;">
+  <div style="max-width: 580px; margin: 0 auto; background: #111827; border-radius: 12px; padding: 36px; border: 1px solid #1f2937;">
+    <h2 style="color: #22c55e; margin: 0 0 16px 0; font-size: 20px;">✅ Brevo HTTPS API Delivery Verified</h2>
+    <p style="color: #f3f4f6; font-size: 15px; line-height: 1.6;">{msg_text}</p>
+    <div style="background: #1f2937; border-radius: 8px; padding: 14px 18px; margin: 20px 0; font-size: 13px; font-family: monospace;">
+      <p style="margin: 4px 0; color: #9ca3af;"><strong>Provider:</strong> BrevoEmailProvider (HTTPS:443)</p>
+      <p style="margin: 4px 0; color: #9ca3af;"><strong>Sender:</strong> {self.from_name} &lt;{self.from_email}&gt;</p>
+      <p style="margin: 4px 0; color: #9ca3af;"><strong>Recipient:</strong> {clean_recipient}</p>
+      <p style="margin: 4px 0; color: #9ca3af;"><strong>Timestamp:</strong> {now_str}</p>
+    </div>
+  </div>
+</body>
+</html>"""
+
+        return self._send_brevo_message(
+            recipient_email=clean_recipient,
+            subject=subject,
+            text_body=text_body,
+            html_body=html_body,
+        )
 
 
 class ResendEmailProvider(EmailProvider):
@@ -298,30 +709,32 @@ class ResendEmailProvider(EmailProvider):
         clean_recipient = str(recipient_email).strip().lower()
         display_name = (recipient_name or "FraudShield User").strip()
         clean_otp = str(otp_code).strip()
-
-        subject = "FraudShield AI — Verify Your Email Address"
         formatted_otp = f"{clean_otp[:3]} {clean_otp[3:]}" if len(clean_otp) == 6 else clean_otp
 
-        button_html = ""
-        button_text = ""
-        if verification_url:
-            button_text = f"\nOr verify directly via link:\n{verification_url}\n"
-            button_html = f"""
-    <div style="text-align: center; margin: 20px 0 10px 0;">
-      <p style="font-size: 14px; color: #9ca3af; margin-bottom: 10px;">Alternatively, verify your email with one click:</p>
-      <a href="{verification_url}" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px; display: inline-block;">Verify Email Address</a>
-    </div>"""
+        subject = "FraudShield AI — Verify Your Email Address"
 
         text_body = (
             f"Hello {display_name},\n\n"
             f"Thank you for registering with FraudShield AI.\n\n"
-            f"Your 6-Digit Email Verification Code is:\n"
+            f"Your 6-digit email verification code is:\n"
             f"{clean_otp}\n\n"
-            f"This code will expire in {expires_in_minutes} minutes.\n"
-            f"{button_text}\n"
-            f"If you did not initiate this registration, please disregard this message.\n\n"
+            f"This code will expire in {expires_in_minutes} minutes.\n\n"
+        )
+        if verification_url:
+            text_body += f"Or verify directly by clicking:\n{verification_url}\n\n"
+        text_body += (
+            f"If you did not attempt to register an account, please disregard this message.\n\n"
             f"FraudShield AI Security Team"
         )
+
+        button_html = ""
+        if verification_url:
+            button_html = f"""
+            <div style="text-align: center; margin: 24px 0 16px 0;">
+              <p style="font-size: 14px; color: #9ca3af; margin-bottom: 12px;">Or verify your email directly with one click:</p>
+              <a href="{verification_url}" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px; display: inline-block;">Verify Email Address</a>
+            </div>
+            """
 
         html_body = f"""<!DOCTYPE html>
 <html>
@@ -333,16 +746,22 @@ class ResendEmailProvider(EmailProvider):
     </div>
     <p style="font-size: 16px; line-height: 1.6; color: #f3f4f6; margin-bottom: 12px;">Hello <strong>{display_name}</strong>,</p>
     <p style="font-size: 15px; line-height: 1.6; color: #9ca3af; margin-bottom: 24px;">
-      Thank you for creating an account with FraudShield AI. Please enter the verification code below in your registration portal to verify ownership of this email address:
+      Thank you for creating an account with FraudShield AI. Please use the verification code below to confirm ownership of your email address:
     </p>
-    <div style="text-align: center; margin: 28px 0; background: #0f172a; padding: 24px; border-radius: 10px; border: 1px solid #1e293b;">
-      <div style="font-size: 13px; text-transform: uppercase; letter-spacing: 1.5px; color: #94a3b8; margin-bottom: 8px; font-weight: 600;">Verification Code</div>
-      <div style="font-size: 36px; font-weight: 800; letter-spacing: 10px; color: #38bdf8; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;">{formatted_otp}</div>
-      <div style="font-size: 13px; color: #f59e0b; margin-top: 10px;">⏱️ Expires in {expires_in_minutes} minutes</div>
+    <div style="text-align: center; margin: 32px 0;">
+      <div style="background: #1e293b; border: 2px dashed #0284c7; border-radius: 10px; display: inline-block; padding: 16px 36px;">
+        <span style="font-family: 'Courier New', Courier, monospace; font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #38bdf8;">{formatted_otp}</span>
+      </div>
+      <p style="font-size: 13px; color: #9ca3af; margin-top: 10px;">Expires in {expires_in_minutes} minutes</p>
     </div>
     {button_html}
+    <div style="background: #1f2937; border-radius: 8px; padding: 14px 18px; margin-top: 24px;">
+      <p style="font-size: 13px; color: #9ca3af; margin: 0;">
+        🔒 <strong>Security Tip:</strong> FraudShield AI representatives will never ask you for this one-time code. Do not share it with anyone.
+      </p>
+    </div>
     <p style="font-size: 13px; line-height: 1.5; color: #6b7280; border-top: 1px solid #1f2937; padding-top: 20px; margin-top: 28px;">
-      If you did not attempt to create a FraudShield AI account, you can safely ignore this email.
+      If you did not request this verification, please safely ignore this email.
     </p>
   </div>
 </body>
@@ -368,18 +787,18 @@ class ResendEmailProvider(EmailProvider):
         display_name = (recipient_name or "FraudShield User").strip()
         clean_otp = str(otp_code).strip()
         formatted_otp = f"{clean_otp[:3]} {clean_otp[3:]}" if len(clean_otp) == 6 else clean_otp
+        amount_display = f"₹{amount:,.2f}" if amount is not None else "your payment"
 
-        amount_str = f" of ₹{amount:,.2f}" if amount is not None else ""
-        subject = f"FraudShield AI — Transaction Verification Code [#{transaction_id}]"
+        subject = f"FraudShield AI — Transaction Verification OTP (Tx #{transaction_id})"
 
         text_body = (
             f"Hello {display_name},\n\n"
-            f"A payment transaction{amount_str} (Ref #{transaction_id}) on your FraudShield AI account requires step-up security verification.\n\n"
-            f"Your 6-Digit One-Time Password (OTP) is:\n"
+            f"A payment transaction of {amount_display} (Transaction ID: #{transaction_id}) has been initiated and requires step-up security verification.\n\n"
+            f"Your Transaction OTP is:\n"
             f"{clean_otp}\n\n"
-            f"This code is valid for {expires_in_minutes} minutes. Do NOT share this code with anyone.\n\n"
-            f"If you did not initiate this payment, please contact security immediately.\n\n"
-            f"FraudShield AI Security Team"
+            f"This code will expire in {expires_in_minutes} minutes.\n\n"
+            f"If you did not authorize this payment, please immediately contact security and block your account.\n\n"
+            f"FraudShield AI Security Operations"
         )
 
         html_body = f"""<!DOCTYPE html>
@@ -388,24 +807,28 @@ class ResendEmailProvider(EmailProvider):
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #0b0f19; color: #e2e8f0; padding: 24px; margin: 0;">
   <div style="max-width: 580px; margin: 0 auto; background: #111827; border-radius: 12px; padding: 36px; border: 1px solid #1f2937; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);">
     <div style="display: flex; align-items: center; margin-bottom: 24px;">
-      <h2 style="color: #38bdf8; margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.5px;">🛡️ FraudShield AI Security</h2>
+      <h2 style="color: #38bdf8; margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.5px;">🛡️ FraudShield AI</h2>
+    </div>
+    <div style="background: #ef444415; border: 1px solid #ef444440; border-radius: 8px; padding: 12px 16px; margin-bottom: 20px;">
+      <p style="color: #f87171; margin: 0; font-size: 14px; font-weight: 600;">⚠️ Step-Up Security Challenge Required</p>
     </div>
     <p style="font-size: 16px; line-height: 1.6; color: #f3f4f6; margin-bottom: 12px;">Hello <strong>{display_name}</strong>,</p>
-    <p style="font-size: 15px; line-height: 1.6; color: #9ca3af; margin-bottom: 24px;">
-      A payment transaction{amount_str} (Transaction <strong>#{transaction_id}</strong>) requires step-up multi-factor authentication. Please enter this code in your payment window to complete the transaction:
+    <p style="font-size: 15px; line-height: 1.6; color: #9ca3af; margin-bottom: 20px;">
+      A transaction of <strong>{amount_display}</strong> (ID: <code>#{transaction_id}</code>) triggered our adaptive fraud detection protocol. Please enter the one-time verification passcode below to confirm and authorize this transaction:
     </p>
-    <div style="text-align: center; margin: 28px 0; background: #0f172a; padding: 24px; border-radius: 10px; border: 1px solid #1e293b;">
-      <div style="font-size: 13px; text-transform: uppercase; letter-spacing: 1.5px; color: #94a3b8; margin-bottom: 8px; font-weight: 600;">Transaction Verification Code</div>
-      <div style="font-size: 36px; font-weight: 800; letter-spacing: 10px; color: #38bdf8; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;">{formatted_otp}</div>
-      <div style="font-size: 13px; color: #f59e0b; margin-top: 10px;">⏱️ Expires in {expires_in_minutes} minutes</div>
+    <div style="text-align: center; margin: 32px 0;">
+      <div style="background: #1e293b; border: 2px dashed #38bdf8; border-radius: 10px; display: inline-block; padding: 16px 36px;">
+        <span style="font-family: 'Courier New', Courier, monospace; font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #38bdf8;">{formatted_otp}</span>
+      </div>
+      <p style="font-size: 13px; color: #9ca3af; margin-top: 10px;">Valid for {expires_in_minutes} minutes</p>
     </div>
-    <div style="background: #1f2937; border-radius: 8px; padding: 14px 18px; margin-bottom: 24px;">
-      <p style="font-size: 13px; color: #fbbf24; margin: 0;">
-        🛡️ <strong>Escrow Protection:</strong> No funds will be deducted from your account until this code is successfully verified.
+    <div style="background: #1f2937; border-radius: 8px; padding: 14px 18px; margin-top: 24px;">
+      <p style="font-size: 13px; color: #f87171; margin: 0;">
+        🚨 <strong>Didn't make this payment?</strong> Do not share this OTP. Immediately log in to lock your payment credentials.
       </p>
     </div>
     <p style="font-size: 13px; line-height: 1.5; color: #6b7280; border-top: 1px solid #1f2937; padding-top: 20px; margin-top: 28px;">
-      If you did not authorize this transaction, do NOT enter this code and secure your account immediately.
+      FraudShield AI Real-Time Transaction Security Engine
     </p>
   </div>
 </body>
@@ -424,37 +847,32 @@ class ResendEmailProvider(EmailProvider):
         test_message: Optional[str] = None,
     ) -> Tuple[bool, Optional[str]]:
         clean_recipient = str(recipient_email).strip().lower()
-        subject = "FraudShield AI — Resend API Diagnostic Test"
-        timestamp_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-        diag = self.get_diagnostics()
+        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        msg_text = test_message or "Your FraudShield AI email delivery configuration is working correctly."
 
+        subject = "FraudShield AI — Diagnostic Delivery Test (Resend HTTPS API)"
         text_body = (
-            f"Hello,\n\n"
-            f"This is an automated diagnostic test email from FraudShield AI sent via the Resend HTTPS Email API.\n\n"
-            f"Timestamp: {timestamp_str}\n"
-            f"Transport: {diag.get('transport')}\n"
-            f"Sender Address: {diag.get('from_email')}\n"
-            f"Sender Name: {diag.get('from_name')}\n\n"
-            f"If you received this email, your FraudShield AI Resend API integration is functioning perfectly!\n\n"
-            f"FraudShield AI Security"
+            f"FraudShield AI — Diagnostic Delivery Test\n\n"
+            f"{msg_text}\n\n"
+            f"Timestamp: {now_str}\n"
+            f"Provider:  Resend HTTPS REST API (Port 443)\n"
+            f"Sender:    {self.from_name} <{self.from_email}>\n\n"
+            f"FraudShield AI Diagnostic Tool"
         )
 
         html_body = f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0b0f19; color: #e2e8f0; padding: 24px;">
-  <div style="max-width: 580px; margin: 0 auto; background: #111827; border-radius: 12px; padding: 32px; border: 1px solid #1f2937;">
-    <h2 style="color: #38bdf8; margin-top: 0;">🛡️ FraudShield AI — Resend API Test</h2>
-    <p style="color: #34d399; font-weight: 600; font-size: 16px;">✅ Resend HTTPS Send Succeeded!</p>
-    <p style="color: #94a3b8; font-size: 14px; line-height: 1.6;">
-      This diagnostic message confirms that your Resend API email delivery channel is active and delivering real emails over secure HTTPS (port 443).
-    </p>
-    <div style="background: #0f172a; border-radius: 8px; padding: 16px; border: 1px solid #1e293b; font-family: monospace; font-size: 13px; color: #cbd5e1; margin: 20px 0;">
-      <div><strong>Timestamp:</strong> {timestamp_str}</div>
-      <div><strong>Transport:</strong> {diag.get('transport')}</div>
-      <div><strong>Sender:</strong> {diag.get('from_name')} &lt;{diag.get('from_email')}&gt;</div>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #0b0f19; color: #e2e8f0; padding: 24px; margin: 0;">
+  <div style="max-width: 580px; margin: 0 auto; background: #111827; border-radius: 12px; padding: 36px; border: 1px solid #1f2937;">
+    <h2 style="color: #22c55e; margin: 0 0 16px 0; font-size: 20px;">✅ Resend HTTPS API Delivery Verified</h2>
+    <p style="color: #f3f4f6; font-size: 15px; line-height: 1.6;">{msg_text}</p>
+    <div style="background: #1f2937; border-radius: 8px; padding: 14px 18px; margin: 20px 0; font-size: 13px; font-family: monospace;">
+      <p style="margin: 4px 0; color: #9ca3af;"><strong>Provider:</strong> ResendEmailProvider (HTTPS:443)</p>
+      <p style="margin: 4px 0; color: #9ca3af;"><strong>Sender:</strong> {self.from_name} &lt;{self.from_email}&gt;</p>
+      <p style="margin: 4px 0; color: #9ca3af;"><strong>Recipient:</strong> {clean_recipient}</p>
+      <p style="margin: 4px 0; color: #9ca3af;"><strong>Timestamp:</strong> {now_str}</p>
     </div>
-    <p style="color: #64748b; font-size: 12px; margin-bottom: 0;">FraudShield AI Production Diagnostics</p>
   </div>
 </body>
 </html>"""
@@ -467,195 +885,9 @@ class ResendEmailProvider(EmailProvider):
         )
 
 
-class DevelopmentEmailProvider(EmailProvider):
-    """
-    Development & Testing Email Provider.
-    
-    Security:
-    - Never returns the reset token in the HTTP API response or frontend.
-    - Captures messages in-memory for automated unit/integration test assertions.
-    - Logs delivery details to server logger without exposing credentials.
-    """
-
-    _sent_emails: List[Dict[str, Any]] = []
-
-    def send_password_reset_email(
-        self,
-        recipient_email: str,
-        reset_url: str,
-        expires_at: Optional[datetime] = None,
-        recipient_name: Optional[str] = None,
-    ) -> Tuple[bool, Optional[str]]:
-        clean_email = str(recipient_email).strip().lower()
-        expiry_str = expires_at.isoformat() if expires_at else "15 minutes"
-
-        record = {
-            "type": "PASSWORD_RESET",
-            "recipient_email": clean_email,
-            "recipient_name": recipient_name or "User",
-            "reset_url": reset_url,
-            "expires_at": expires_at,
-            "dispatched_at": datetime.now(timezone.utc),
-        }
-        self.__class__._sent_emails.append(record)
-
-        try:
-            if current_app:
-                current_app.logger.info(
-                    "[DEV-EMAIL] Password reset email queued for %s (Expires: %s).",
-                    clean_email,
-                    expiry_str,
-                )
-        except RuntimeError:
-            pass
-
-        return True, None
-
-    def send_email_verification_otp(
-        self,
-        recipient_email: str,
-        otp_code: str,
-        recipient_name: Optional[str] = None,
-        verification_url: Optional[str] = None,
-        expires_in_minutes: int = 5,
-    ) -> Tuple[bool, Optional[str]]:
-        clean_email = str(recipient_email).strip().lower()
-
-        record = {
-            "type": "EMAIL_VERIFICATION",
-            "recipient_email": clean_email,
-            "recipient_name": recipient_name or "User",
-            "otp_code": str(otp_code).strip(),
-            "verification_url": verification_url,
-            "expires_in_minutes": expires_in_minutes,
-            "dispatched_at": datetime.now(timezone.utc),
-        }
-        self.__class__._sent_emails.append(record)
-
-        try:
-            if current_app:
-                current_app.logger.info(
-                    "[DEV-EMAIL] Email verification OTP queued for %s (Expires in: %dm).",
-                    clean_email,
-                    expires_in_minutes,
-                )
-        except RuntimeError:
-            pass
-
-        return True, None
-
-    def send_transaction_otp(
-        self,
-        recipient_email: str,
-        otp_code: str,
-        transaction_id: int,
-        amount: Optional[float] = None,
-        recipient_name: Optional[str] = None,
-        expires_in_minutes: int = 3,
-    ) -> Tuple[bool, Optional[str]]:
-        clean_email = str(recipient_email).strip().lower()
-        clean_otp = str(otp_code).strip()
-
-        record = {
-            "type": "TRANSACTION_OTP",
-            "recipient_email": clean_email,
-            "recipient_name": recipient_name or "User",
-            "otp_code": clean_otp,
-            "transaction_id": transaction_id,
-            "amount": amount,
-            "expires_in_minutes": expires_in_minutes,
-            "dispatched_at": datetime.now(timezone.utc),
-        }
-        self.__class__._sent_emails.append(record)
-
-        try:
-            if current_app:
-                current_app.logger.info(
-                    "[DEV-EMAIL] Transaction #%s OTP queued for %s (Expires in: %dm).",
-                    transaction_id,
-                    clean_email,
-                    expires_in_minutes,
-                )
-        except RuntimeError:
-            pass
-
-        return True, None
-
-    def send_test_email(
-        self,
-        recipient_email: str,
-        test_message: Optional[str] = None,
-    ) -> Tuple[bool, Optional[str]]:
-        clean_email = str(recipient_email).strip().lower()
-        record = {
-            "type": "TEST_EMAIL",
-            "recipient_email": clean_email,
-            "test_message": test_message or "Diagnostic test message",
-            "dispatched_at": datetime.now(timezone.utc),
-        }
-        self.__class__._sent_emails.append(record)
-        return True, None
-
-    @classmethod
-    def get_last_email(cls, recipient_email: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        """Retrieve the last captured email, optionally filtered by recipient."""
-        if not cls._sent_emails:
-            return None
-        if recipient_email:
-            clean = recipient_email.strip().lower()
-            for item in reversed(cls._sent_emails):
-                if item["recipient_email"] == clean:
-                    return item
-            return None
-        return cls._sent_emails[-1]
-
-    @classmethod
-    def get_last_email_otp(cls, recipient_email: Optional[str] = None) -> Optional[str]:
-        """Extract the OTP code from the last dispatched email verification or transaction OTP."""
-        if not cls._sent_emails:
-            return None
-        clean = recipient_email.strip().lower() if recipient_email else None
-        for item in reversed(cls._sent_emails):
-            if item.get("type") in ["EMAIL_VERIFICATION", "TRANSACTION_OTP"]:
-                if not clean or item["recipient_email"] == clean:
-                    return item.get("otp_code")
-        return None
-
-    @classmethod
-    def get_last_token(cls, recipient_email: Optional[str] = None) -> Optional[str]:
-        """Extract the raw token from the last dispatched email's verification_url or reset_url."""
-        import urllib.parse
-        last_email = cls.get_last_email(recipient_email)
-        if not last_email:
-            return None
-        url = last_email.get("verification_url") or last_email.get("reset_url")
-        if not url:
-            return None
-        parsed = urllib.parse.urlparse(url)
-        params = urllib.parse.parse_qs(parsed.query)
-        token_list = params.get("token")
-        return token_list[0] if token_list else None
-
-    @classmethod
-    def clear_history(cls) -> None:
-        """Clear captured email history between test runs."""
-        cls._sent_emails.clear()
-
-
 class SmtpEmailProvider(EmailProvider):
     """
-    Standard SMTP Provider for Local Development & Alternative Environments.
-    
-    Configured via environment variables:
-    - MAIL_PROVIDER / EMAIL_PROVIDER: 'smtp'
-    - MAIL_SERVER / SMTP_HOST / SMTP_SERVER
-    - MAIL_PORT / SMTP_PORT (default 587, or 465 for SSL)
-    - MAIL_USERNAME / SMTP_USERNAME / SMTP_USER
-    - MAIL_PASSWORD / SMTP_PASSWORD
-    - MAIL_USE_TLS / SMTP_USE_TLS (default True)
-    - MAIL_USE_SSL / SMTP_USE_SSL (default False, True if port 465)
-    - MAIL_DEFAULT_SENDER / SMTP_FROM_EMAIL / EMAIL_FROM
-    - SMTP_FROM_NAME
+    Standard SMTP / TLS / SSL Email Provider for local environments or dedicated hosting.
     """
 
     def __init__(
@@ -668,6 +900,7 @@ class SmtpEmailProvider(EmailProvider):
         use_ssl: Optional[bool] = None,
         from_email: Optional[str] = None,
         from_name: Optional[str] = None,
+        timeout: int = 10,
     ):
         raw_host = (
             host
@@ -676,8 +909,9 @@ class SmtpEmailProvider(EmailProvider):
             or os.environ.get("MAIL_SERVER")
             or os.environ.get("SMTP_HOST")
             or os.environ.get("SMTP_SERVER")
+            or ""
         )
-        self.host = str(raw_host).strip() if raw_host else None
+        self.host = str(raw_host).strip().strip('"').strip("'")
 
         raw_port = (
             port
@@ -699,8 +933,9 @@ class SmtpEmailProvider(EmailProvider):
             or os.environ.get("MAIL_USERNAME")
             or os.environ.get("SMTP_USERNAME")
             or os.environ.get("SMTP_USER")
+            or ""
         )
-        self.username = str(raw_user).strip() if raw_user else None
+        self.username = str(raw_user).strip().strip('"').strip("'")
 
         raw_pass = (
             password
@@ -708,46 +943,40 @@ class SmtpEmailProvider(EmailProvider):
             or (current_app.config.get("MAIL_PASSWORD") if current_app else None)
             or os.environ.get("MAIL_PASSWORD")
             or os.environ.get("SMTP_PASSWORD")
+            or ""
         )
-        self.password = str(raw_pass).strip().strip('"').strip("'") if raw_pass else None
+        self.password = str(raw_pass).strip().strip('"').strip("'")
 
-        # Determine SSL vs TLS
         if use_ssl is not None:
-            self.use_ssl = use_ssl
+            self.use_ssl = bool(use_ssl)
         elif self.port == 465:
             self.use_ssl = True
-        elif current_app and current_app.config.get("SMTP_USE_SSL") is not None:
-            self.use_ssl = str(current_app.config.get("SMTP_USE_SSL")).lower() in ("true", "1", "yes")
-        elif os.environ.get("MAIL_USE_SSL"):
-            self.use_ssl = os.environ.get("MAIL_USE_SSL", "false").lower() in ("true", "1", "yes")
-        elif os.environ.get("SMTP_USE_SSL"):
-            self.use_ssl = os.environ.get("SMTP_USE_SSL", "false").lower() in ("true", "1", "yes")
+        elif current_app and "SMTP_USE_SSL" in current_app.config:
+            self.use_ssl = bool(current_app.config.get("SMTP_USE_SSL"))
         else:
-            self.use_ssl = False
+            raw_ssl_env = os.environ.get("MAIL_USE_SSL", os.environ.get("SMTP_USE_SSL", "false"))
+            self.use_ssl = str(raw_ssl_env).lower() in ["true", "1", "yes"]
 
         if use_tls is not None:
-            self.use_tls = use_tls
+            self.use_tls = bool(use_tls)
         elif self.use_ssl:
             self.use_tls = False
-        elif current_app and current_app.config.get("SMTP_USE_TLS") is not None:
-            self.use_tls = str(current_app.config.get("SMTP_USE_TLS")).lower() in ("true", "1", "yes")
-        elif os.environ.get("MAIL_USE_TLS"):
-            self.use_tls = os.environ.get("MAIL_USE_TLS", "true").lower() in ("true", "1", "yes")
-        elif os.environ.get("SMTP_USE_TLS"):
-            self.use_tls = os.environ.get("SMTP_USE_TLS", "true").lower() in ("true", "1", "yes")
+        elif current_app and "SMTP_USE_TLS" in current_app.config:
+            self.use_tls = bool(current_app.config.get("SMTP_USE_TLS"))
         else:
-            self.use_tls = True
+            raw_tls_env = os.environ.get("MAIL_USE_TLS", os.environ.get("SMTP_USE_TLS", "true"))
+            self.use_tls = str(raw_tls_env).lower() in ["true", "1", "yes"]
 
         raw_from = (
             from_email
             or (current_app.config.get("SMTP_FROM_EMAIL") if current_app else None)
+            or (current_app.config.get("MAIL_DEFAULT_SENDER") if current_app else None)
             or os.environ.get("MAIL_DEFAULT_SENDER")
             or os.environ.get("SMTP_FROM_EMAIL")
             or os.environ.get("EMAIL_FROM")
-            or (self.username if (self.username and "@" in self.username) else "security@fraudshield.ai")
+            or (self.username if self.username and "@" in self.username else "teamfraudsheildai@gmail.com")
         )
-        # Parse clean address
-        parsed_addr = email.utils.parseaddr(raw_from)[1]
+        parsed_addr = email.utils.parseaddr(str(raw_from))[1]
         self.from_email = parsed_addr if parsed_addr else str(raw_from).strip()
 
         raw_from_name = (
@@ -757,9 +986,10 @@ class SmtpEmailProvider(EmailProvider):
             or "FraudShield AI Security"
         )
         self.from_name = str(raw_from_name).strip()
+        self.timeout = timeout
 
     def get_diagnostics(self) -> Dict[str, Any]:
-        """Return safe configuration status without exposing credentials."""
+        """Return non-sensitive connection settings."""
         return {
             "provider": "SmtpEmailProvider",
             "smtp_host": self.host or "NOT_CONFIGURED",
@@ -768,9 +998,31 @@ class SmtpEmailProvider(EmailProvider):
             "use_ssl": self.use_ssl,
             "username_configured": bool(self.username),
             "password_configured": bool(self.password),
-            "sender_configured": bool(self.from_email),
-            "sender_address": self.from_email or "NOT_CONFIGURED",
+            "sender_address": self.from_email,
+            "sender_name": self.from_name,
         }
+
+    def _connect(self) -> smtplib.SMTP:
+        """Establish connection, initiate TLS if enabled, and authenticate."""
+        if not self.host:
+            raise ValueError("SMTP host is not configured.")
+
+        if self.use_ssl:
+            context = ssl.create_default_context()
+            server = smtplib.SMTP_SSL(self.host, self.port, timeout=self.timeout, context=context)
+        else:
+            server = smtplib.SMTP(self.host, self.port, timeout=self.timeout)
+
+        server.ehlo()
+        if self.use_tls and not self.use_ssl:
+            context = ssl.create_default_context()
+            server.starttls(context=context)
+            server.ehlo()
+
+        if self.username and self.password:
+            server.login(self.username, self.password)
+
+        return server
 
     def _send_smtp_message(
         self,
@@ -779,142 +1031,47 @@ class SmtpEmailProvider(EmailProvider):
         text_body: str,
         html_body: str,
     ) -> Tuple[bool, Optional[str]]:
-        """
-        Execute the standard RFC 5322 / SMTP sequence:
-        1. Connect to host:port with socket timeout
-        2. EHLO
-        3. STARTTLS (if TLS enabled)
-        4. EHLO (post-STARTTLS)
-        5. AUTH LOGIN
-        6. sendmail
-        7. QUIT
-        """
+        """Construct MIME message and dispatch via SMTP."""
         if not self.host:
-            err = "SMTP host is not configured."
-            if current_app:
-                current_app.logger.warning("[SMTP] %s", err)
-            return False, err
+            return False, "SMTP server is not configured in environment variables."
 
         clean_recipient = str(recipient_email).strip().lower()
-
-        # Build MIME Message
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
         msg["From"] = f"{self.from_name} <{self.from_email}>" if self.from_name else self.from_email
         msg["To"] = clean_recipient
-        msg["Reply-To"] = self.from_email
-        msg["Date"] = email.utils.formatdate(localtime=True)
-        msg["Message-ID"] = email.utils.make_msgid(domain="fraudshield.ai")
 
         msg.attach(MIMEText(text_body, "plain", "utf-8"))
         msg.attach(MIMEText(html_body, "html", "utf-8"))
 
-        diag = self.get_diagnostics()
         server = None
         try:
+            server = self._connect()
+            server.sendmail(self.from_email, [clean_recipient], msg.as_string())
             if current_app:
-                current_app.logger.info("[SMTP] Connecting to %s:%d (SSL=%s, TLS=%s)...", diag["smtp_host"], diag["smtp_port"], diag["use_ssl"], diag["use_tls"])
-
-            if self.use_ssl:
-                server = smtplib.SMTP_SSL(self.host, self.port, timeout=25)
-                ehlo_code, ehlo_resp = server.ehlo()
-                if current_app:
-                    current_app.logger.info("[SMTP] Connected via SSL. Server greeting: %s", ehlo_code)
-            else:
-                server = smtplib.SMTP(self.host, self.port, timeout=25)
-                ehlo_code, ehlo_resp = server.ehlo()
-                if current_app:
-                    current_app.logger.info("[SMTP] Connected. Server greeting: %s", ehlo_code)
-                if self.use_tls:
-                    if current_app:
-                        current_app.logger.info("[SMTP] STARTTLS...")
-                    tls_code, tls_resp = server.starttls()
-                    if current_app:
-                        current_app.logger.info("[SMTP] STARTTLS response: %s", tls_code)
-                    ehlo2_code, ehlo2_resp = server.ehlo()
-                    if current_app:
-                        current_app.logger.info("[SMTP] Post-STARTTLS EHLO: %s", ehlo2_code)
-
-            if self.username and self.password:
-                if current_app:
-                    current_app.logger.info("[SMTP] Authentication...")
-                # Handle Google App Passwords if internal spaces were preserved
-                pwd = self.password
-                if "gmail" in str(self.host).lower():
-                    pwd = pwd.replace(" ", "")
-                auth_code, auth_resp = server.login(self.username, pwd)
-                if current_app:
-                    current_app.logger.info("[SMTP] Authentication successful: %s", auth_code)
-
-            envelope_from = email.utils.parseaddr(self.from_email)[1] or self.from_email
-            if current_app:
-                current_app.logger.info("[SMTP] Sending...")
-            send_resp = server.sendmail(envelope_from, [clean_recipient], msg.as_string())
-            if current_app:
-                current_app.logger.info("[SMTP] SMTP server response: %s (accepted)", send_resp if send_resp else "250 OK")
-                current_app.logger.info("[SMTP] SUCCESS: Email accepted by SMTP server for delivery to '%s' (Subject: '%s')", clean_recipient, subject)
+                current_app.logger.info("[SMTP] SUCCESS: Message delivered to '%s'", clean_recipient)
             return True, None
-
-        except smtplib.SMTPAuthenticationError as exc:
-            err_msg = f"SMTPAuthenticationError: Authentication failed ({exc.smtp_code}: {exc.smtp_error.decode('utf-8', errors='ignore') if isinstance(exc.smtp_error, bytes) else str(exc.smtp_error)})"
+        except (socket.error, OSError) as net_err:
+            err_msg = f"NetworkError ({type(net_err).__name__}): {str(net_err)}"
             if current_app:
                 current_app.logger.error("[SMTP] FAILURE: %s", err_msg)
             return False, err_msg
-        except smtplib.SMTPServerDisconnected as exc:
-            err_msg = f"SMTPServerDisconnected: {str(exc) or 'Server unexpectedly disconnected'}"
-            if current_app:
-                current_app.logger.error("[SMTP] FAILURE: %s", err_msg)
-            return False, err_msg
-        except smtplib.SMTPSenderRefused as exc:
-            err_msg = f"SMTPSenderRefused: Sender address rejected ({exc.smtp_code}: {exc.smtp_error})"
-            if current_app:
-                current_app.logger.error("[SMTP] FAILURE: %s", err_msg)
-            return False, err_msg
-        except smtplib.SMTPRecipientsRefused as exc:
-            err_msg = f"SMTPRecipientsRefused: Recipient address rejected: {str(exc.recipients)}"
-            if current_app:
-                current_app.logger.error("[SMTP] FAILURE: %s", err_msg)
-            return False, err_msg
-        except smtplib.SMTPDataError as exc:
-            err_msg = f"SMTPDataError: Data rejected ({exc.smtp_code}: {exc.smtp_error})"
-            if current_app:
-                current_app.logger.error("[SMTP] FAILURE: %s", err_msg)
-            return False, err_msg
-        except smtplib.SMTPConnectError as exc:
-            err_msg = f"SMTPConnectError: Connection to {self.host}:{self.port} failed ({exc.smtp_code}: {exc.smtp_error})"
-            if current_app:
-                current_app.logger.error("[SMTP] FAILURE: %s", err_msg)
-            return False, err_msg
-        except ssl.SSLError as exc:
-            err_msg = f"SSLError: SSL/TLS handshake failed ({str(exc)})"
-            if current_app:
-                current_app.logger.error("[SMTP] FAILURE: %s", err_msg)
-            return False, err_msg
-        except (socket.timeout, TimeoutError) as exc:
-            err_msg = f"TimeoutError: Connection or read timed out connecting to {self.host}:{self.port}"
-            if current_app:
-                current_app.logger.error("[SMTP] FAILURE: %s", err_msg)
-            return False, err_msg
-        except OSError as exc:
-            err_msg = f"NetworkError (OSError): {str(exc)}"
+        except smtplib.SMTPAuthenticationError as auth_err:
+            err_msg = f"SMTPAuthenticationError: {auth_err.smtp_error.decode('utf-8', errors='ignore') if isinstance(auth_err.smtp_error, bytes) else str(auth_err.smtp_error)}"
             if current_app:
                 current_app.logger.error("[SMTP] FAILURE: %s", err_msg)
             return False, err_msg
         except Exception as exc:
-            exc_type = type(exc).__name__
-            err_msg = f"{exc_type}: {str(exc)}"
+            err_msg = f"{type(exc).__name__}: {str(exc)}"
             if current_app:
                 current_app.logger.error("[SMTP] FAILURE: %s", err_msg)
             return False, err_msg
         finally:
-            if server is not None:
+            if server:
                 try:
                     server.quit()
                 except Exception:
-                    try:
-                        server.close()
-                    except Exception:
-                        pass
+                    pass
 
     def send_password_reset_email(
         self,
@@ -927,7 +1084,11 @@ class SmtpEmailProvider(EmailProvider):
         display_name = (recipient_name or "FraudShield User").strip()
 
         subject = "FraudShield AI — Password Reset"
-        expiry_info = f"This link expires in 15 minutes (at {expires_at.strftime('%H:%M UTC')}) and can only be used once." if expires_at else "This link expires in 15 minutes and can only be used once."
+        expiry_info = (
+            f"This link expires in 15 minutes (at {expires_at.strftime('%H:%M UTC')}) and can only be used once."
+            if expires_at
+            else "This link expires in 15 minutes and can only be used once."
+        )
 
         text_body = (
             f"Hello {display_name},\n\n"
@@ -984,30 +1145,32 @@ class SmtpEmailProvider(EmailProvider):
         clean_recipient = str(recipient_email).strip().lower()
         display_name = (recipient_name or "FraudShield User").strip()
         clean_otp = str(otp_code).strip()
-
-        subject = "FraudShield AI — Verify Your Email Address"
         formatted_otp = f"{clean_otp[:3]} {clean_otp[3:]}" if len(clean_otp) == 6 else clean_otp
 
-        button_html = ""
-        button_text = ""
-        if verification_url:
-            button_text = f"\nOr verify directly via link:\n{verification_url}\n"
-            button_html = f"""
-    <div style="text-align: center; margin: 20px 0 10px 0;">
-      <p style="font-size: 14px; color: #9ca3af; margin-bottom: 10px;">Alternatively, verify your email with one click:</p>
-      <a href="{verification_url}" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px; display: inline-block;">Verify Email Address</a>
-    </div>"""
+        subject = "FraudShield AI — Verify Your Email Address"
 
         text_body = (
             f"Hello {display_name},\n\n"
             f"Thank you for registering with FraudShield AI.\n\n"
-            f"Your 6-Digit Email Verification Code is:\n"
+            f"Your 6-digit email verification code is:\n"
             f"{clean_otp}\n\n"
-            f"This code will expire in {expires_in_minutes} minutes.\n"
-            f"{button_text}\n"
-            f"If you did not initiate this registration, please disregard this message.\n\n"
+            f"This code will expire in {expires_in_minutes} minutes.\n\n"
+        )
+        if verification_url:
+            text_body += f"Or verify directly by clicking:\n{verification_url}\n\n"
+        text_body += (
+            f"If you did not attempt to register an account, please disregard this message.\n\n"
             f"FraudShield AI Security Team"
         )
+
+        button_html = ""
+        if verification_url:
+            button_html = f"""
+            <div style="text-align: center; margin: 24px 0 16px 0;">
+              <p style="font-size: 14px; color: #9ca3af; margin-bottom: 12px;">Or verify your email directly with one click:</p>
+              <a href="{verification_url}" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px; display: inline-block;">Verify Email Address</a>
+            </div>
+            """
 
         html_body = f"""<!DOCTYPE html>
 <html>
@@ -1019,16 +1182,22 @@ class SmtpEmailProvider(EmailProvider):
     </div>
     <p style="font-size: 16px; line-height: 1.6; color: #f3f4f6; margin-bottom: 12px;">Hello <strong>{display_name}</strong>,</p>
     <p style="font-size: 15px; line-height: 1.6; color: #9ca3af; margin-bottom: 24px;">
-      Thank you for creating an account with FraudShield AI. Please enter the verification code below in your registration portal to verify ownership of this email address:
+      Thank you for creating an account with FraudShield AI. Please use the verification code below to confirm ownership of your email address:
     </p>
-    <div style="text-align: center; margin: 28px 0; background: #0f172a; padding: 24px; border-radius: 10px; border: 1px solid #1e293b;">
-      <div style="font-size: 13px; text-transform: uppercase; letter-spacing: 1.5px; color: #94a3b8; margin-bottom: 8px; font-weight: 600;">Verification Code</div>
-      <div style="font-size: 36px; font-weight: 800; letter-spacing: 10px; color: #38bdf8; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;">{formatted_otp}</div>
-      <div style="font-size: 13px; color: #f59e0b; margin-top: 10px;">⏱️ Expires in {expires_in_minutes} minutes</div>
+    <div style="text-align: center; margin: 32px 0;">
+      <div style="background: #1e293b; border: 2px dashed #0284c7; border-radius: 10px; display: inline-block; padding: 16px 36px;">
+        <span style="font-family: 'Courier New', Courier, monospace; font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #38bdf8;">{formatted_otp}</span>
+      </div>
+      <p style="font-size: 13px; color: #9ca3af; margin-top: 10px;">Expires in {expires_in_minutes} minutes</p>
     </div>
     {button_html}
+    <div style="background: #1f2937; border-radius: 8px; padding: 14px 18px; margin-top: 24px;">
+      <p style="font-size: 13px; color: #9ca3af; margin: 0;">
+        🔒 <strong>Security Tip:</strong> FraudShield AI representatives will never ask you for this one-time code. Do not share it with anyone.
+      </p>
+    </div>
     <p style="font-size: 13px; line-height: 1.5; color: #6b7280; border-top: 1px solid #1f2937; padding-top: 20px; margin-top: 28px;">
-      If you did not attempt to create a FraudShield AI account, you can safely ignore this email.
+      If you did not request this verification, please safely ignore this email.
     </p>
   </div>
 </body>
@@ -1054,18 +1223,18 @@ class SmtpEmailProvider(EmailProvider):
         display_name = (recipient_name or "FraudShield User").strip()
         clean_otp = str(otp_code).strip()
         formatted_otp = f"{clean_otp[:3]} {clean_otp[3:]}" if len(clean_otp) == 6 else clean_otp
+        amount_display = f"₹{amount:,.2f}" if amount is not None else "your payment"
 
-        amount_str = f" of ₹{amount:,.2f}" if amount is not None else ""
-        subject = f"FraudShield AI — Transaction Verification Code [#{transaction_id}]"
+        subject = f"FraudShield AI — Transaction Verification OTP (Tx #{transaction_id})"
 
         text_body = (
             f"Hello {display_name},\n\n"
-            f"A payment transaction{amount_str} (Ref #{transaction_id}) on your FraudShield AI account requires step-up security verification.\n\n"
-            f"Your 6-Digit One-Time Password (OTP) is:\n"
+            f"A payment transaction of {amount_display} (Transaction ID: #{transaction_id}) has been initiated and requires step-up security verification.\n\n"
+            f"Your Transaction OTP is:\n"
             f"{clean_otp}\n\n"
-            f"This code is valid for {expires_in_minutes} minutes. Do NOT share this code with anyone.\n\n"
-            f"If you did not initiate this payment, please contact security immediately.\n\n"
-            f"FraudShield AI Security Team"
+            f"This code will expire in {expires_in_minutes} minutes.\n\n"
+            f"If you did not authorize this payment, please immediately contact security and block your account.\n\n"
+            f"FraudShield AI Security Operations"
         )
 
         html_body = f"""<!DOCTYPE html>
@@ -1074,24 +1243,28 @@ class SmtpEmailProvider(EmailProvider):
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #0b0f19; color: #e2e8f0; padding: 24px; margin: 0;">
   <div style="max-width: 580px; margin: 0 auto; background: #111827; border-radius: 12px; padding: 36px; border: 1px solid #1f2937; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);">
     <div style="display: flex; align-items: center; margin-bottom: 24px;">
-      <h2 style="color: #38bdf8; margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.5px;">🛡️ FraudShield AI Security</h2>
+      <h2 style="color: #38bdf8; margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.5px;">🛡️ FraudShield AI</h2>
+    </div>
+    <div style="background: #ef444415; border: 1px solid #ef444440; border-radius: 8px; padding: 12px 16px; margin-bottom: 20px;">
+      <p style="color: #f87171; margin: 0; font-size: 14px; font-weight: 600;">⚠️ Step-Up Security Challenge Required</p>
     </div>
     <p style="font-size: 16px; line-height: 1.6; color: #f3f4f6; margin-bottom: 12px;">Hello <strong>{display_name}</strong>,</p>
-    <p style="font-size: 15px; line-height: 1.6; color: #9ca3af; margin-bottom: 24px;">
-      A payment transaction{amount_str} (Transaction <strong>#{transaction_id}</strong>) requires step-up multi-factor authentication. Please enter this code in your payment window to complete the transaction:
+    <p style="font-size: 15px; line-height: 1.6; color: #9ca3af; margin-bottom: 20px;">
+      A transaction of <strong>{amount_display}</strong> (ID: <code>#{transaction_id}</code>) triggered our adaptive fraud detection protocol. Please enter the one-time verification passcode below to confirm and authorize this transaction:
     </p>
-    <div style="text-align: center; margin: 28px 0; background: #0f172a; padding: 24px; border-radius: 10px; border: 1px solid #1e293b;">
-      <div style="font-size: 13px; text-transform: uppercase; letter-spacing: 1.5px; color: #94a3b8; margin-bottom: 8px; font-weight: 600;">Transaction Verification Code</div>
-      <div style="font-size: 36px; font-weight: 800; letter-spacing: 10px; color: #38bdf8; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;">{formatted_otp}</div>
-      <div style="font-size: 13px; color: #f59e0b; margin-top: 10px;">⏱️ Expires in {expires_in_minutes} minutes</div>
+    <div style="text-align: center; margin: 32px 0;">
+      <div style="background: #1e293b; border: 2px dashed #38bdf8; border-radius: 10px; display: inline-block; padding: 16px 36px;">
+        <span style="font-family: 'Courier New', Courier, monospace; font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #38bdf8;">{formatted_otp}</span>
+      </div>
+      <p style="font-size: 13px; color: #9ca3af; margin-top: 10px;">Valid for {expires_in_minutes} minutes</p>
     </div>
-    <div style="background: #1f2937; border-radius: 8px; padding: 14px 18px; margin-bottom: 24px;">
-      <p style="font-size: 13px; color: #fbbf24; margin: 0;">
-        🛡️ <strong>Escrow Protection:</strong> No funds will be deducted from your account until this code is successfully verified.
+    <div style="background: #1f2937; border-radius: 8px; padding: 14px 18px; margin-top: 24px;">
+      <p style="font-size: 13px; color: #f87171; margin: 0;">
+        🚨 <strong>Didn't make this payment?</strong> Do not share this OTP. Immediately log in to lock your payment credentials.
       </p>
     </div>
     <p style="font-size: 13px; line-height: 1.5; color: #6b7280; border-top: 1px solid #1f2937; padding-top: 20px; margin-top: 28px;">
-      If you did not authorize this transaction, do NOT enter this code and secure your account immediately.
+      FraudShield AI Real-Time Transaction Security Engine
     </p>
   </div>
 </body>
@@ -1110,42 +1283,33 @@ class SmtpEmailProvider(EmailProvider):
         test_message: Optional[str] = None,
     ) -> Tuple[bool, Optional[str]]:
         clean_recipient = str(recipient_email).strip().lower()
-        subject = "FraudShield AI — SMTP Diagnostic Test"
-        timestamp_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-        diag = self.get_diagnostics()
+        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        msg_text = test_message or "Your FraudShield AI email delivery configuration is working correctly."
 
+        subject = "FraudShield AI — Diagnostic Delivery Test (SMTP)"
         text_body = (
-            f"Hello,\n\n"
-            f"This is an automated diagnostic test email from FraudShield AI.\n\n"
-            f"Timestamp: {timestamp_str}\n"
-            f"SMTP Host: {diag.get('smtp_host')}\n"
-            f"SMTP Port: {diag.get('smtp_port')}\n"
-            f"TLS Enabled: {diag.get('use_tls')}\n"
-            f"SSL Enabled: {diag.get('use_ssl')}\n"
-            f"Sender Address: {diag.get('sender_address')}\n\n"
-            f"If you received this email, your FraudShield AI SMTP configuration is working correctly!\n\n"
-            f"FraudShield AI Security"
+            f"FraudShield AI — Diagnostic Delivery Test\n\n"
+            f"{msg_text}\n\n"
+            f"Timestamp: {now_str}\n"
+            f"Provider:  SmtpEmailProvider\n"
+            f"Host:      {self.host}:{self.port}\n"
+            f"Sender:    {self.from_name} <{self.from_email}>\n\n"
+            f"FraudShield AI Diagnostic Tool"
         )
 
         html_body = f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0b0f19; color: #e2e8f0; padding: 24px;">
-  <div style="max-width: 580px; margin: 0 auto; background: #111827; border-radius: 12px; padding: 32px; border: 1px solid #1f2937;">
-    <h2 style="color: #38bdf8; margin-top: 0;">🛡️ FraudShield AI — SMTP Diagnostic Test</h2>
-    <p style="color: #34d399; font-weight: 600; font-size: 16px;">✅ SMTP Send Succeeded!</p>
-    <p style="color: #94a3b8; font-size: 14px; line-height: 1.6;">
-      This diagnostic message confirms that your SMTP delivery channel is active, authenticated, and delivering real emails to inboxes.
-    </p>
-    <div style="background: #0f172a; border-radius: 8px; padding: 16px; border: 1px solid #1e293b; font-family: monospace; font-size: 13px; color: #cbd5e1; margin: 20px 0;">
-      <div><strong>Timestamp:</strong> {timestamp_str}</div>
-      <div><strong>Host:</strong> {diag.get('smtp_host')}</div>
-      <div><strong>Port:</strong> {diag.get('smtp_port')}</div>
-      <div><strong>TLS:</strong> {diag.get('use_tls')}</div>
-      <div><strong>SSL:</strong> {diag.get('use_ssl')}</div>
-      <div><strong>Sender:</strong> {diag.get('sender_address')}</div>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #0b0f19; color: #e2e8f0; padding: 24px; margin: 0;">
+  <div style="max-width: 580px; margin: 0 auto; background: #111827; border-radius: 12px; padding: 36px; border: 1px solid #1f2937;">
+    <h2 style="color: #22c55e; margin: 0 0 16px 0; font-size: 20px;">✅ SMTP Delivery Verified</h2>
+    <p style="color: #f3f4f6; font-size: 15px; line-height: 1.6;">{msg_text}</p>
+    <div style="background: #1f2937; border-radius: 8px; padding: 14px 18px; margin: 20px 0; font-size: 13px; font-family: monospace;">
+      <p style="margin: 4px 0; color: #9ca3af;"><strong>Provider:</strong> SmtpEmailProvider ({self.host}:{self.port})</p>
+      <p style="margin: 4px 0; color: #9ca3af;"><strong>Sender:</strong> {self.from_name} &lt;{self.from_email}&gt;</p>
+      <p style="margin: 4px 0; color: #9ca3af;"><strong>Recipient:</strong> {clean_recipient}</p>
+      <p style="margin: 4px 0; color: #9ca3af;"><strong>Timestamp:</strong> {now_str}</p>
     </div>
-    <p style="color: #64748b; font-size: 12px; margin-bottom: 0;">FraudShield AI Production Diagnostics</p>
   </div>
 </body>
 </html>"""
@@ -1158,8 +1322,65 @@ class SmtpEmailProvider(EmailProvider):
         )
 
 
-class NullEmailProvider(EmailProvider):
-    """Fallback provider when no valid email provider credentials are configured in production."""
+class DevelopmentEmailProvider(EmailProvider):
+    """
+    In-memory simulation email provider for test suites and local offline development.
+    """
+    sent_emails: List[Dict[str, Any]] = []
+
+    @classmethod
+    def reset(cls) -> None:
+        cls.sent_emails = []
+
+    @classmethod
+    def clear_history(cls) -> None:
+        cls.sent_emails = []
+
+    @classmethod
+    def get_last_email(cls, recipient: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        if not recipient:
+            return cls.sent_emails[-1] if cls.sent_emails else None
+        clean_r = recipient.strip().lower()
+        for m in reversed(cls.sent_emails):
+            if m.get("recipient", "").strip().lower() == clean_r:
+                return m
+        return None
+
+    @classmethod
+    def get_last_email_otp(cls, recipient: Optional[str] = None) -> Optional[str]:
+        email_data = cls.get_last_email(recipient)
+        return email_data.get("otp_code") if email_data else None
+
+    @classmethod
+    def get_last_otp(cls, recipient: Optional[str] = None) -> Optional[str]:
+        return cls.get_last_email_otp(recipient)
+
+    @classmethod
+    def get_last_token(cls, recipient: Optional[str] = None) -> Optional[str]:
+        email_data = cls.get_last_email(recipient)
+        if not email_data:
+            return None
+        if email_data.get("token"):
+            return email_data.get("token")
+        reset_url = email_data.get("reset_url") or ""
+        if "token=" in reset_url:
+            return reset_url.split("token=")[1].split("&")[0]
+        verif_url = email_data.get("verification_url") or ""
+        if "token=" in verif_url:
+            return verif_url.split("token=")[1].split("&")[0]
+        return None
+
+    @classmethod
+    def get_last_reset_url(cls, recipient: Optional[str] = None) -> Optional[str]:
+        email_data = cls.get_last_email(recipient)
+        return email_data.get("reset_url") if email_data else None
+
+    @classmethod
+    def get_sent_emails(cls, recipient: Optional[str] = None) -> List[Dict[str, Any]]:
+        if not recipient:
+            return list(cls.sent_emails)
+        clean_r = recipient.strip().lower()
+        return [m for m in cls.sent_emails if m.get("recipient", "").strip().lower() == clean_r]
 
     def send_password_reset_email(
         self,
@@ -1168,9 +1389,105 @@ class NullEmailProvider(EmailProvider):
         expires_at: Optional[datetime] = None,
         recipient_name: Optional[str] = None,
     ) -> Tuple[bool, Optional[str]]:
-        msg = "Email delivery is not configured. Please configure RESEND_API_KEY or SMTP credentials."
+        entry = {
+            "type": "PASSWORD_RESET",
+            "recipient": recipient_email.strip().lower(),
+            "recipient_name": recipient_name,
+            "reset_url": reset_url,
+            "expires_at": expires_at,
+            "timestamp": datetime.now(timezone.utc),
+        }
+        DevelopmentEmailProvider.sent_emails.append(entry)
         if current_app:
-            current_app.logger.warning("[NullEmailProvider] Attempted to send reset email with no provider configured.")
+            current_app.logger.info(
+                "[DEV EMAIL] Password reset email recorded for '%s'",
+                recipient_email,
+            )
+        return True, None
+
+    def send_email_verification_otp(
+        self,
+        recipient_email: str,
+        otp_code: str,
+        recipient_name: Optional[str] = None,
+        verification_url: Optional[str] = None,
+        expires_in_minutes: int = 5,
+    ) -> Tuple[bool, Optional[str]]:
+        entry = {
+            "type": "EMAIL_VERIFICATION_OTP",
+            "recipient": recipient_email.strip().lower(),
+            "recipient_name": recipient_name,
+            "otp_code": otp_code,
+            "verification_url": verification_url,
+            "expires_in_minutes": expires_in_minutes,
+            "timestamp": datetime.now(timezone.utc),
+        }
+        DevelopmentEmailProvider.sent_emails.append(entry)
+        if current_app:
+            current_app.logger.info(
+                "[DEV EMAIL] Verification OTP recorded for '%s'",
+                recipient_email,
+            )
+        return True, None
+
+    def send_transaction_otp(
+        self,
+        recipient_email: str,
+        otp_code: str,
+        transaction_id: int,
+        amount: Optional[float] = None,
+        recipient_name: Optional[str] = None,
+        expires_in_minutes: int = 3,
+    ) -> Tuple[bool, Optional[str]]:
+        entry = {
+            "type": "TRANSACTION_OTP",
+            "recipient": recipient_email.strip().lower(),
+            "recipient_name": recipient_name,
+            "otp_code": otp_code,
+            "transaction_id": transaction_id,
+            "amount": amount,
+            "expires_in_minutes": expires_in_minutes,
+            "timestamp": datetime.now(timezone.utc),
+        }
+        DevelopmentEmailProvider.sent_emails.append(entry)
+        if current_app:
+            current_app.logger.info(
+                "[DEV EMAIL] Transaction OTP recorded for Tx #%d to '%s'",
+                transaction_id,
+                recipient_email,
+            )
+        return True, None
+
+    def send_test_email(
+        self,
+        recipient_email: str,
+        test_message: Optional[str] = None,
+    ) -> Tuple[bool, Optional[str]]:
+        entry = {
+            "type": "test_email",
+            "recipient": recipient_email.strip().lower(),
+            "message": test_message,
+            "timestamp": datetime.now(timezone.utc),
+        }
+        DevelopmentEmailProvider.sent_emails.append(entry)
+        return True, None
+
+
+class NullEmailProvider(EmailProvider):
+    """
+    Fallback provider when no email service is configured. Returns honest failure.
+    """
+
+    def send_password_reset_email(
+        self,
+        recipient_email: str,
+        reset_url: str,
+        expires_at: Optional[datetime] = None,
+        recipient_name: Optional[str] = None,
+    ) -> Tuple[bool, Optional[str]]:
+        msg = "Email delivery is not configured. Please configure BREVO_API_KEY, RESEND_API_KEY, or SMTP credentials."
+        if current_app:
+            current_app.logger.warning("[NullEmailProvider] Attempted to send password reset with no provider configured.")
         return False, msg
 
     def send_email_verification_otp(
@@ -1181,9 +1498,9 @@ class NullEmailProvider(EmailProvider):
         verification_url: Optional[str] = None,
         expires_in_minutes: int = 5,
     ) -> Tuple[bool, Optional[str]]:
-        msg = "Email delivery is not configured. Please configure RESEND_API_KEY or SMTP credentials."
+        msg = "Email delivery is not configured. Please configure BREVO_API_KEY, RESEND_API_KEY, or SMTP credentials."
         if current_app:
-            current_app.logger.warning("[NullEmailProvider] Attempted to send email verification OTP with no provider configured.")
+            current_app.logger.warning("[NullEmailProvider] Attempted to send verification OTP with no provider configured.")
         return False, msg
 
     def send_transaction_otp(
@@ -1195,7 +1512,7 @@ class NullEmailProvider(EmailProvider):
         recipient_name: Optional[str] = None,
         expires_in_minutes: int = 3,
     ) -> Tuple[bool, Optional[str]]:
-        msg = "Email delivery is not configured. Please configure RESEND_API_KEY or SMTP credentials."
+        msg = "Email delivery is not configured. Please configure BREVO_API_KEY, RESEND_API_KEY, or SMTP credentials."
         if current_app:
             current_app.logger.warning("[NullEmailProvider] Attempted to send transaction OTP with no provider configured.")
         return False, msg
@@ -1205,7 +1522,7 @@ class NullEmailProvider(EmailProvider):
         recipient_email: str,
         test_message: Optional[str] = None,
     ) -> Tuple[bool, Optional[str]]:
-        msg = "Email delivery is not configured. Please configure RESEND_API_KEY or SMTP credentials."
+        msg = "Email delivery is not configured. Please configure BREVO_API_KEY, RESEND_API_KEY, or SMTP credentials."
         return False, msg
 
 
@@ -1214,12 +1531,13 @@ def get_email_provider() -> EmailProvider:
     Factory resolving active EmailProvider based on runtime configuration.
     
     Order of resolution:
-    1. Explicit EMAIL_PROVIDER / MAIL_PROVIDER configuration ('resend', 'smtp', 'development', 'null').
+    1. Explicit EMAIL_PROVIDER / MAIL_PROVIDER configuration ('brevo', 'resend', 'smtp', 'development', 'null').
     2. If app is TESTING or DEBUG (and no explicit provider requested), use DevelopmentEmailProvider.
-    3. If RESEND_API_KEY is present in env/config and non-empty, use ResendEmailProvider.
-    4. If MAIL_SERVER / SMTP_HOST / SMTP_SERVER is defined and non-empty, use SmtpEmailProvider.
-    5. If FLASK_ENV is development or testing, use DevelopmentEmailProvider.
-    6. Otherwise, use NullEmailProvider (honest failure without simulated success).
+    3. If BREVO_API_KEY or MAIL_API_KEY is present in env/config and non-empty, use BrevoEmailProvider.
+    4. If RESEND_API_KEY is present in env/config and non-empty, use ResendEmailProvider.
+    5. If MAIL_SERVER / SMTP_HOST / SMTP_SERVER is defined and non-empty, use SmtpEmailProvider.
+    6. If FLASK_ENV is development or testing, use DevelopmentEmailProvider.
+    7. Otherwise, use NullEmailProvider (honest failure without simulated success).
     """
     # 1. Check Flask app config override
     try:
@@ -1232,13 +1550,15 @@ def get_email_provider() -> EmailProvider:
             for cand in (email_p, mail_p):
                 if cand:
                     c = str(cand).lower().strip()
-                    if c in ("resend", "smtp", "null"):
+                    if c in ("brevo", "resend", "smtp", "null"):
                         chosen = c
                         break
                     elif c == "development" and chosen is None:
                         chosen = "development"
 
-            if chosen == "resend":
+            if chosen == "brevo":
+                return BrevoEmailProvider()
+            elif chosen == "resend":
                 return ResendEmailProvider()
             elif chosen == "smtp":
                 return SmtpEmailProvider()
@@ -1250,6 +1570,11 @@ def get_email_provider() -> EmailProvider:
             # If in automated testing without explicit override, use DevelopmentEmailProvider
             if current_app.config.get("TESTING"):
                 return DevelopmentEmailProvider()
+
+            # If BREVO_API_KEY or MAIL_API_KEY is configured in app config, prefer BrevoEmailProvider
+            brevo_key = current_app.config.get("BREVO_API_KEY") or current_app.config.get("MAIL_API_KEY")
+            if brevo_key and str(brevo_key).strip():
+                return BrevoEmailProvider()
 
             # If RESEND_API_KEY is configured in app config, prefer ResendEmailProvider
             resend_key = current_app.config.get("RESEND_API_KEY")
@@ -1273,6 +1598,8 @@ def get_email_provider() -> EmailProvider:
         or os.environ.get("MAIL_PROVIDER", "")
     ).lower().strip()
 
+    if env_provider == "brevo":
+        return BrevoEmailProvider()
     if env_provider == "resend":
         return ResendEmailProvider()
     if env_provider == "smtp":
@@ -1280,6 +1607,8 @@ def get_email_provider() -> EmailProvider:
     if env_provider == "null":
         return NullEmailProvider()
     if env_provider == "development":
+        if os.environ.get("BREVO_API_KEY") or os.environ.get("MAIL_API_KEY"):
+            return BrevoEmailProvider()
         if os.environ.get("RESEND_API_KEY"):
             return ResendEmailProvider()
         env_host = os.environ.get("MAIL_SERVER") or os.environ.get("SMTP_HOST") or os.environ.get("SMTP_SERVER")
@@ -1288,6 +1617,10 @@ def get_email_provider() -> EmailProvider:
         return DevelopmentEmailProvider()
 
     # 3. Auto-detect based on available credentials
+    if os.environ.get("BREVO_API_KEY") and str(os.environ.get("BREVO_API_KEY")).strip():
+        return BrevoEmailProvider()
+    if os.environ.get("MAIL_API_KEY") and str(os.environ.get("MAIL_API_KEY")).strip():
+        return BrevoEmailProvider()
     if os.environ.get("RESEND_API_KEY") and str(os.environ.get("RESEND_API_KEY")).strip():
         return ResendEmailProvider()
 

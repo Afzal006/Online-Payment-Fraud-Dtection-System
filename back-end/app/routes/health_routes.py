@@ -33,12 +33,15 @@ def health_check():
     try:
         from app.providers.email_provider import (
             get_email_provider,
+            BrevoEmailProvider,
             ResendEmailProvider,
             SmtpEmailProvider,
             DevelopmentEmailProvider,
         )
         provider = get_email_provider()
-        if isinstance(provider, ResendEmailProvider):
+        if isinstance(provider, BrevoEmailProvider):
+            email_provider_status = "brevo_configured" if provider.api_key else "brevo_missing_key"
+        elif isinstance(provider, ResendEmailProvider):
             email_provider_status = "resend_configured" if provider.api_key else "resend_missing_key"
         elif isinstance(provider, SmtpEmailProvider):
             email_provider_status = "smtp_configured"
@@ -67,6 +70,7 @@ def health_email():
     """Diagnostic endpoint for email provider configuration and status without exposing secrets."""
     from app.providers.email_provider import (
         get_email_provider,
+        BrevoEmailProvider,
         ResendEmailProvider,
         SmtpEmailProvider,
         DevelopmentEmailProvider,
@@ -76,7 +80,7 @@ def health_email():
     provider = get_email_provider()
     provider_name = type(provider).__name__
 
-    if isinstance(provider, ResendEmailProvider):
+    if isinstance(provider, (BrevoEmailProvider, ResendEmailProvider)):
         diag = provider.get_diagnostics()
         return jsonify({
             "status": "configured" if diag["api_key_configured"] else "not_configured",
@@ -108,7 +112,7 @@ def health_email():
         return jsonify({
             "status": "development",
             "provider": provider_name,
-            "description": "In-memory test simulation active. Set EMAIL_PROVIDER=resend and RESEND_API_KEY for real email delivery.",
+            "description": "In-memory test simulation active. Set EMAIL_PROVIDER=brevo and BREVO_API_KEY for real email delivery.",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "environment": current_app.config.get("FLASK_ENV", "development"),
         }), 200
@@ -116,7 +120,7 @@ def health_email():
         return jsonify({
             "status": "not_configured",
             "provider": provider_name,
-            "description": "No active email provider. Set EMAIL_PROVIDER=resend and RESEND_API_KEY.",
+            "description": "No active email provider. Set EMAIL_PROVIDER=brevo and BREVO_API_KEY.",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "environment": current_app.config.get("FLASK_ENV", "development"),
         }), 200

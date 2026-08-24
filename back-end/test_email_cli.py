@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Direct CLI Diagnostic Tool for FraudShield AI Email Delivery (Resend / SMTP).
+Direct CLI Diagnostic Tool for FraudShield AI Email Delivery (Brevo / Resend / SMTP).
 
 Usage:
     python test_email_cli.py <recipient-email>
@@ -29,7 +29,12 @@ else:
     load_dotenv()
 
 from app import create_app
-from app.providers.email_provider import get_email_provider, ResendEmailProvider, SmtpEmailProvider
+from app.providers.email_provider import (
+    get_email_provider,
+    BrevoEmailProvider,
+    ResendEmailProvider,
+    SmtpEmailProvider,
+)
 
 
 def main():
@@ -54,7 +59,7 @@ def main():
         print("=" * 65)
         print(f"Provider:            {diag.get('provider')}")
         print(f"Transport:           {diag.get('transport', 'Default')}")
-        if isinstance(provider, ResendEmailProvider):
+        if isinstance(provider, (BrevoEmailProvider, ResendEmailProvider)):
             print(f"API Key Configured:  {'YES' if diag.get('api_key_configured') else 'NO'}")
             print(f"Sender Address:      {diag.get('from_email')}")
             print(f"Sender Name:         {diag.get('from_name')}")
