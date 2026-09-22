@@ -2,7 +2,7 @@
  * AegisGuard AI - Centralized Frontend API Client & State Management
  */
 
-const API_BASE_URL = window.location.origin;
+const API_BASE_URL = (typeof window !== 'undefined' && (window.__BACKEND_URL__ || localStorage.getItem('fraudshield_backend_url') || window.location.origin)) || '';
 
 class ApiClient {
   constructor() {
