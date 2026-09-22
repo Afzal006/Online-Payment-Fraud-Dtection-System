@@ -1,0 +1,55 @@
+% =========================================================
+% CHAPTER 7: TECHNOLOGY STACK
+% =========================================================
+\chapter{Technology Stack}
+\label{chap:technology_stack}
+
+\section{Technology Stack Overview}
+FraudShield AI is engineered using a modern, robust, and academically sound technology stack designed to support real-time inference, reliable data persistence, transparent explainability, and responsive client interactions.
+
+\begin{table}[h]
+\centering
+\caption{Comprehensive Technology Stack Specification}
+\label{tab:tech_stack}
+\begin{tabularx}{\textwidth}{lp{3.5cm}X}
+\toprule
+\textbf{Layer / Component} & \textbf{Technology / Library} & \textbf{Role \& Architecture Justification} \\
+\midrule
+\textbf{Backend Framework} & Python 3.11+ / 3.14\newline Flask 3.1.2 & Core server engine; lightweight WSGI framework supporting modular application factories and decoupled REST blueprints. \\
+\addlinespace
+\textbf{Persistence \& ORM} & Flask-SQLAlchemy 3.1.1\newline SQLAlchemy 2.0.52 & Object-Relational Mapping (ORM) enforcing relational constraints, foreign keys, cascade deletes, and ACID transactions. \\
+\addlinespace
+\textbf{Database Engine} & SQLite (Dev / Test)\newline MySQL (Production) & High-performance relational storage; in-memory SQLite ensures zero test pollution across automated testing runs. \\
+\addlinespace
+\textbf{Authentication} & Flask-JWT-Extended 4.7.4\newline Werkzeug Security 3.1.5 & Stateless 24-hour JSON Web Token (JWT) authorization; salted PBKDF2/Scrypt cryptographic password and PIN hashing. \\
+\addlinespace
+\textbf{Machine Learning} & Scikit-Learn 1.8.0\newline XGBoost 3.4.1\newline Joblib 1.5.3 & Supervised ensemble training, hyperparameter tuning, serialized pipeline packaging, and sub-millisecond inference. \\
+\addlinespace
+\textbf{Explainable AI (XAI)} & SHAP 0.52.0 & \texttt{TreeExplainer} framework computing local Shapley values ($E[f(x)]$ vs $f(x)$) for model interpretability. \\
+\addlinespace
+\textbf{Data Processing} & Pandas 2.3.3\newline NumPy 2.4.2 & Vectorized feature engineering, matrix mathematical transformations, and dataset audit metrics. \\
+\addlinespace
+\textbf{Client Interface} & Semantic HTML5\newline Vanilla CSS3\newline Vanilla JavaScript (ES6+) & Custom Glassmorphism design system; zero heavy frontend framework bloat; dynamic asynchronous DOM manipulation. \\
+\addlinespace
+\textbf{Data Visualization} & Chart.js 4.4.0 & Interactive HTML5 canvas charts displaying SOC telemetry, risk distributions, and feature drift metrics. \\
+\addlinespace
+\textbf{Email Delivery} & Python \texttt{smtplib}\newline RFC-5322 Standard & Transport Layer Security (TLS/SSL) SMTP provider delivering instantaneous 6-digit numeric OTP codes. \\
+\addlinespace
+\textbf{Testing \& QA} & Pytest 9.1.1 & Automated testing suite executing 501 unit, integration, and security test cases. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Backend Infrastructure Details}
+The backend architecture is structured around Flask Application Factories. Key modules include:
+\begin{itemize}
+    \item \textbf{Configuration Management (\texttt{app/config.py})}: Centralizes environment variables, risk thresholds, database connection strings, and security constants loaded via \texttt{python-dotenv}.
+    \item \textbf{Extensions Management (\texttt{app/extensions.py})}: Initializes database, JWT, and CORS singletons, preventing circular import dependencies.
+    \item \textbf{Service Layer (\texttt{app/services/})}: Enforces strict separation of concerns by isolating business logic (payment processing, risk scoring, SHAP calculation, and email delivery) from HTTP routing controllers.
+\end{itemize}
+
+\section{Machine Learning \& Serialization Tooling}
+The machine learning pipeline utilizes standard Scikit-Learn \texttt{Pipeline} abstractions combining \texttt{ColumnTransformer} preprocessors with tuned ensemble classifiers. The trained model artifact (\texttt{model.joblib}) encapsulates both one-hot categorical encoders and standard scalers, ensuring that raw incoming transaction dictionaries are transformed identically to the training distribution.
+
+\section{Frontend Design Philosophy}
+The frontend interface adopts a bespoke \textbf{Glassmorphism} design system constructed entirely with Vanilla CSS3 variables and tokens. By avoiding heavy external frontend runtimes (such as React or Angular), the client portal achieves instantaneous page loads, zero build-step overhead in development, and seamless integration with Flask Jinja2 server templates.

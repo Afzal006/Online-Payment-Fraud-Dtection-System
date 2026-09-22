@@ -1,0 +1,185 @@
+% =========================================================
+% PRELIMINARY PAGES: Cover, Certificate, Declaration, Acknowledgement, TOC
+% =========================================================
+
+\begin{titlepage}
+\begin{center}
+    \vspace*{0.5cm}
+    {\huge \bfseries \color{primaryblue} ONLINE PAYMENT FRAUD DETECTION SYSTEM USING MACHINE LEARNING}\\[0.6cm]
+    {\large \bfseries \color{secondaryblue} A Real-Time Adaptive Risk Scoring and Explainable AI FinTech Defense Platform}\\[1.5cm]
+
+    \textit{A Project Report Submitted in Partial Fulfillment of the Requirements for the Degree of}\\[0.4cm]
+    {\large \bfseries BACHELOR OF TECHNOLOGY / COMPUTER SCIENCE \& ENGINEERING}\\[1.5cm]
+
+    \begin{minipage}{0.45\textwidth}
+        \begin{flushleft} \large
+            \emph{Submitted by:}\\
+            \textbf{Student Project Candidate}\\
+            \text{Roll No: [TO BE PROVIDED]}\\
+            \text{Department of Computer Science}
+        \end{flushleft}
+    \end{minipage}
+    \begin{minipage}{0.45\textwidth}
+        \begin{flushright} \large
+            \emph{Under the Guidance of:}\\
+            \textbf{Project Supervisor / Faculty Guide}\\
+            \text{Department of Computer Science}\\
+            \text{[Institution / University Name]}
+        \end{flushright}
+    \end{minipage}
+
+    \vfill
+    \includegraphics[width=2.5cm]{figures/qr_github.png}\\[0.3cm]
+    {\small \textbf{Project Repository:} \url{https://github.com/Afzal006/Online-Payment-Fraud-Dtection-System}}\\[0.8cm]
+
+    {\large \bfseries DEPARTMENT OF COMPUTER SCIENCE \& ENGINEERING}\\[0.2cm]
+    {\large [INSTITUTION / UNIVERSITY NAME]}\\[0.2cm]
+    {\small Academic Year 2025--2026}
+\end{center}
+\end{titlepage}
+
+% ---------------------------------------------------------
+% Certificate of Authenticity & Evaluation
+% ---------------------------------------------------------
+\newpage
+\thispagestyle{plain}
+\begin{center}
+    {\Large \bfseries \color{primaryblue} [INSTITUTION / UNIVERSITY NAME]}\\[0.2cm]
+    {\large \bfseries DEPARTMENT OF COMPUTER SCIENCE \& ENGINEERING}\\[0.8cm]
+    {\LARGE \bfseries \color{darkslate} CERTIFICATE}\\[0.8cm]
+\end{center}
+
+This is to certify that the project report entitled \textbf{``ONLINE PAYMENT FRAUD DETECTION SYSTEM USING MACHINE LEARNING''} is a bonafide record of the independent engineering and research work carried out by the student project candidate towards partial fulfillment of the degree requirements during the academic year 2025--2026.
+
+The project implements an enterprise-grade real-time fraud assessment pipeline featuring balanced ensemble classification, dual-perspective SHAP model interpretability, 4-tier risk decision policies, and atomic pre-settlement Email OTP challenge verification. To the best of our knowledge, the results incorporated in this report are based on verified empirical testing and source code implementation.
+
+\vspace{2.5cm}
+
+\noindent
+\begin{minipage}{0.45\textwidth}
+    \begin{flushleft}
+        \textbf{Internal Faculty Supervisor}\\[0.2cm]
+        Signature: \underline{\hspace{4.0cm}}\\[0.2cm]
+        Date: \underline{\hspace{4.0cm}}
+    \end{flushleft}
+\end{minipage}
+\hfill
+\begin{minipage}{0.45\textwidth}
+    \begin{flushright}
+        \textbf{Head of Department}\\[0.2cm]
+        Signature: \underline{\hspace{4.0cm}}\\[0.2cm]
+        Date: \underline{\hspace{4.0cm}}
+    \end{flushright}
+\end{minipage}
+
+\vspace{1.5cm}
+\begin{center}
+    \textbf{External Evaluation Committee Signatures}\\[0.5cm]
+    1. Internal Examiner: \underline{\hspace{4.5cm}} \hspace{1cm} 2. External Examiner: \underline{\hspace{4.5cm}}
+\end{center}
+
+% ---------------------------------------------------------
+% Declaration of Originality
+% ---------------------------------------------------------
+\newpage
+\thispagestyle{plain}
+\begin{center}
+    {\LARGE \bfseries \color{primaryblue} DECLARATION}\\[1.0cm]
+\end{center}
+
+I hereby declare that the project work presented in this report entitled \textbf{``Online Payment Fraud Detection System Using Machine Learning''} is an original contribution carried out under the academic supervision of faculty advisors.
+
+I explicitly affirm that:
+\begin{enumerate}[label=\alph*.]
+    \item The code, algorithms, architectural models, and empirical testing documented herein have been faithfully extracted from the project repository.
+    \item All external libraries, frameworks (Flask, Scikit-Learn, XGBoost, SHAP, SQLAlchemy), research publications, and datasets (PaySim) have been duly referenced and cited in the bibliography.
+    \item This document does not infringe upon any third-party intellectual property, and contains zero exposed cryptographic credentials or production keys.
+\end{enumerate}
+
+\vspace{2.5cm}
+\noindent
+\begin{minipage}{0.5\textwidth}
+    \textbf{Place:} [City / Campus]\\
+    \textbf{Date:} August 2026
+\end{minipage}
+\hfill
+\begin{minipage}{0.4\textwidth}
+    \begin{flushright}
+        \textbf{Student Candidate Signature}\\[0.2cm]
+        \underline{\hspace{4.5cm}}
+    \end{flushright}
+\end{minipage}
+
+% ---------------------------------------------------------
+% Acknowledgement
+% ---------------------------------------------------------
+\newpage
+\thispagestyle{plain}
+\begin{center}
+    {\LARGE \bfseries \color{primaryblue} ACKNOWLEDGEMENTS}\\[1.0cm]
+\end{center}
+
+We express our sincere gratitude to our project supervisor, faculty members, and the Department of Computer Science \& Engineering for providing constant guidance, constructive feedback, and computational resources necessary to design, train, and test this machine learning payment security platform.
+
+We also thank the open-source software community and maintainers of Python, Scikit-Learn, Flask, and the PaySim synthetic financial dataset research consortium for providing the foundational tools that made this real-time fraud defense system possible.
+
+% ---------------------------------------------------------
+% Table of Contents, Lists
+% ---------------------------------------------------------
+\newpage
+\thispagestyle{plain}
+\tableofcontents
+
+\newpage
+\thispagestyle{plain}
+\listoffigures
+
+\newpage
+\thispagestyle{plain}
+\listoftables
+
+% ---------------------------------------------------------
+% List of Abbreviations
+% ---------------------------------------------------------
+\newpage
+\thispagestyle{plain}
+\chapter*{List of Abbreviations}
+\addcontentsline{toc}{chapter}{List of Abbreviations}
+
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\textbf{Abbreviation} & \textbf{Full Expansion} \\
+\midrule
+\textbf{ACID} & Atomicity, Consistency, Isolation, Durability \\
+\textbf{AI} & Artificial Intelligence \\
+\textbf{API} & Application Programming Interface \\
+\textbf{AUC} & Area Under the Curve \\
+\textbf{DFD} & Data Flow Diagram \\
+\textbf{ERD} & Entity Relationship Diagram \\
+\textbf{F1} & Harmonic Mean of Precision and Recall \\
+\textbf{IDOR} & Insecure Direct Object Reference \\
+\textbf{JWT} & JSON Web Token (RFC 7519) \\
+\textbf{ML} & Machine Learning \\
+\textbf{MFA / 2FA} & Multi-Factor Authentication / Two-Factor Authentication \\
+\textbf{OTP} & One-Time Password \\
+\textbf{PBKDF2} & Password-Based Key Derivation Function 2 \\
+\textbf{PR-AUC} & Precision-Recall Area Under Curve \\
+\textbf{P2P} & Peer-to-Peer \\
+\textbf{RBAC} & Role-Based Access Control \\
+\textbf{RF} & Random Forest Classifier \\
+\textbf{ROC-AUC} & Receiver Operating Characteristic Area Under Curve \\
+\textbf{SHAP} & SHapley Additive exPlanations \\
+\textbf{SMTP} & Simple Mail Transfer Protocol (RFC 5322) \\
+\textbf{SOC} & Security Operations Center \\
+\textbf{SQL} & Structured Query Language \\
+\textbf{TLS} & Transport Layer Security \\
+\textbf{UML} & Unified Modeling Language \\
+\textbf{UPI} & Unified Payments Interface \\
+\textbf{VPA} & Virtual Payment Address \\
+\textbf{XAI} & Explainable Artificial Intelligence \\
+\textbf{XGBoost} & Extreme Gradient Boosting \\
+\bottomrule
+\end{tabularx}
+\end{table}

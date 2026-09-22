@@ -23,7 +23,10 @@ from typing import Dict, Any, List, Union, Optional
 import pandas as pd
 import numpy as np
 import joblib
-import shap
+try:
+    import shap
+except Exception:
+    shap = None
 
 from ml.feature_engineering import engineer_features, get_model_feature_names
 
@@ -86,9 +89,36 @@ class FraudExplainer:
         self._preprocessor = self._pipeline.named_steps["preprocessor"]
         self._classifier = self._pipeline.named_steps["classifier"]
 
-        # Initialize TreeExplainer
-        self._explainer = shap.TreeExplainer(self._classifier)
+        # Initialize TreeExplainer or tree path explainer fallback
+        if shap is not None:
+            try:
+                self._explainer = shap.TreeExplainer(self._classifier)
+            except Exception:
+                self._explainer = None
+        else:
+            self._explainer = None
         self._transformed_feature_names = list(self._preprocessor.get_feature_names_out())
+
+    def _compute_tree_contributions(self, X_trans: np.ndarray) -> np.ndarray:
+        """Compute exact decision path contributions across trees as fallback."""
+        n_features = X_trans.shape[1]
+        contributions = np.zeros(n_features)
+        for tree in self._classifier.estimators_:
+            node_indicator = tree.decision_path(X_trans)
+            nodes = node_indicator.indices
+            values = tree.tree_.value[:, 0, :]
+            probs = values / values.sum(axis=1, keepdims=True)
+            fraud_probs = probs[:, 1]
+            feature = tree.tree_.feature
+            for i in range(len(nodes) - 1):
+                curr_node = nodes[i]
+                next_node = nodes[i + 1]
+                split_feat = feature[curr_node]
+                if split_feat >= 0:
+                    diff = fraud_probs[next_node] - fraud_probs[curr_node]
+                    contributions[split_feat] += diff
+        contributions /= len(self._classifier.estimators_)
+        return contributions
 
     @property
     def metadata(self) -> Dict[str, Any]:
@@ -173,17 +203,18 @@ class FraudExplainer:
             risk_level = "HIGH"
 
         # 3. Compute SHAP Values
-        shap_values_raw = self._explainer.shap_values(X_trans)
-
-        # Handle binary classification output shape (1, n_features, 2) or list of arrays
-        if isinstance(shap_values_raw, list):
-            shap_fraud = shap_values_raw[1][0]  # Class 1 (Fraud)
-        elif isinstance(shap_values_raw, np.ndarray) and len(shap_values_raw.shape) == 3:
-            shap_fraud = shap_values_raw[0, :, 1]  # (1, 15, 2) -> Class 1
-        elif isinstance(shap_values_raw, np.ndarray) and len(shap_values_raw.shape) == 2:
-            shap_fraud = shap_values_raw[0]
+        if self._explainer is not None:
+            shap_values_raw = self._explainer.shap_values(X_trans)
+            if isinstance(shap_values_raw, list):
+                shap_fraud = shap_values_raw[1][0]  # Class 1 (Fraud)
+            elif isinstance(shap_values_raw, np.ndarray) and len(shap_values_raw.shape) == 3:
+                shap_fraud = shap_values_raw[0, :, 1]  # (1, 15, 2) -> Class 1
+            elif isinstance(shap_values_raw, np.ndarray) and len(shap_values_raw.shape) == 2:
+                shap_fraud = shap_values_raw[0]
+            else:
+                shap_fraud = np.array(shap_values_raw).ravel()
         else:
-            shap_fraud = np.array(shap_values_raw).ravel()
+            shap_fraud = self._compute_tree_contributions(X_trans)
 
         # 4. Map SHAP Contributions to Features
         feature_contributions = []

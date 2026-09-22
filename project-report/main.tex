@@ -1,0 +1,203 @@
+\documentclass[11pt,a4paper]{report}
+
+% ---------------------------------------------------------
+% Core Academic Packages & Typography
+% ---------------------------------------------------------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath, amssymb, amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{tcolorbox}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{setspace}
+\usepackage{titlesec}
+\usepackage{cite}
+
+% ---------------------------------------------------------
+% Color Palette Definition
+% ---------------------------------------------------------
+\definecolor{primaryblue}{RGB}{30, 58, 138}
+\definecolor{secondaryblue}{RGB}{2, 132, 199}
+\definecolor{accentemerald}{RGB}{16, 185, 129}
+\definecolor{darkslate}{RGB}{30, 41, 59}
+\definecolor{lightgraybg}{RGB}{248, 250, 252}
+\definecolor{codegray}{RGB}{241, 245, 249}
+\definecolor{codeborder}{RGB}{203, 213, 225}
+\definecolor{codegreen}{RGB}{22, 101, 52}
+\definecolor{remarkbg}{RGB}{254, 254, 255}
+\definecolor{remarkborder}{RGB}{148, 163, 184}
+
+% ---------------------------------------------------------
+% Page Layout & Mandatory Remarks Box Setup
+% ---------------------------------------------------------
+\usepackage[
+  a4paper,
+  top=2.5cm,
+  bottom=4.2cm,
+  left=2.5cm,
+  right=2.5cm,
+  headheight=15pt,
+  footskip=2.8cm
+]{geometry}
+
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+
+% Header Configuration
+\fancyhead[L]{\small\textcolor{darkslate}{\textit{Online Payment Fraud Detection System Using ML}}}
+\fancyhead[R]{\small\textcolor{darkslate}{\nouppercase{\leftmark}}}
+\renewcommand{\headrulewidth}{0.5pt}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{secondaryblue}\leaders\hrule height \headrulewidth\hfill}}
+
+% Footer Configuration with Dedicated Evaluator Remarks Box on EVERY Page
+\fancyfoot[C]{%
+  \begin{tcolorbox}[
+    width=\textwidth,
+    height=2.2cm,
+    colback=remarkbg,
+    colframe=remarkborder,
+    boxrule=0.6pt,
+    arc=2pt,
+    top=1.5mm,
+    bottom=1.5mm,
+    left=2.5mm,
+    right=2.5mm
+  ]
+    \footnotesize
+    \textbf{\textcolor{primaryblue}{EVALUATOR / FACULTY REMARKS:}} \hfill \textcolor{darkslate}{Page \thepage}\\[1.5mm]
+    \textcolor{remarkborder}{\rule{\linewidth}{0.4pt}}\\[2.5mm]
+    \textcolor{remarkborder}{\rule{0.65\linewidth}{0.4pt}} \hfill \textit{\scriptsize Evaluator Signature \& Date: \underline{\hspace{3.2cm}}}
+  \end{tcolorbox}
+}
+
+% Plain page style (used for chapter first pages) also gets the Remarks footer
+\fancypagestyle{plain}{%
+  \fancyhf{}
+  \fancyhead{}
+  \renewcommand{\headrulewidth}{0pt}
+  \fancyfoot[C]{%
+    \begin{tcolorbox}[
+      width=\textwidth,
+      height=2.2cm,
+      colback=remarkbg,
+      colframe=remarkborder,
+      boxrule=0.6pt,
+      arc=2pt,
+      top=1.5mm,
+      bottom=1.5mm,
+      left=2.5mm,
+      right=2.5mm
+    ]
+      \footnotesize
+      \textbf{\textcolor{primaryblue}{EVALUATOR / FACULTY REMARKS:}} \hfill \textcolor{darkslate}{Page \thepage}\\[1.5mm]
+      \textcolor{remarkborder}{\rule{\linewidth}{0.4pt}}\\[2.5mm]
+      \textcolor{remarkborder}{\rule{0.65\linewidth}{0.4pt}} \hfill \textit{\scriptsize Evaluator Signature \& Date: \underline{\hspace{3.2cm}}}
+    \end{tcolorbox}
+  }
+}
+
+% ---------------------------------------------------------
+% Section Formatting
+% ---------------------------------------------------------
+\titleformat{\chapter}[display]
+  {\normalfont\huge\bfseries\color{primaryblue}}{\chaptertitlename\ \thechapter}{15pt}{\Huge\color{darkslate}}
+\titleformat{\section}
+  {\normalfont\Large\bfseries\color{primaryblue}}{\thesection}{1em}{}
+\titleformat{\subsection}
+  {\normalfont\large\bfseries\color{secondaryblue}}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}
+  {\normalfont\normalsize\bfseries\color{darkslate}}{\thesubsubsection}{1em}{}
+
+\titlespacing*{\chapter}{0pt}{-10pt}{20pt}
+\titlespacing*{\section}{0pt}{15pt}{8pt}
+\titlespacing*{\subsection}{0pt}{12pt}{6pt}
+
+% ---------------------------------------------------------
+% Code Listing Configuration
+% ---------------------------------------------------------
+\lstdefinestyle{academicCode}{
+  backgroundcolor=\color{codegray},
+  commentstyle=\color{codegreen}\itshape,
+  keywordstyle=\color{primaryblue}\bfseries,
+  numberstyle=\tiny\color{darkslate},
+  stringstyle=\color{secondaryblue},
+  basicstyle=\ttfamily\footnotesize,
+  breakatwhitespace=false,
+  breaklines=true,
+  captionpos=b,
+  keepspaces=true,
+  numbers=left,
+  numbersep=6pt,
+  showspaces=false,
+  showstringspaces=false,
+  showtabs=false,
+  tabsize=2,
+  frame=single,
+  rulecolor=\color{codeborder},
+  xleftmargin=10pt,
+  framexleftmargin=6pt
+}
+\lstset{style=academicCode}
+
+% ---------------------------------------------------------
+% Hyperlinks Setup
+% ---------------------------------------------------------
+\usepackage{hyperref}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=primaryblue,
+  citecolor=secondaryblue,
+  urlcolor=primaryblue,
+  pdfauthor={Afzal006},
+  pdftitle={Online Payment Fraud Detection System Using Machine Learning},
+  pdfsubject={Academic Project Report},
+  pdfkeywords={Fraud Detection, Machine Learning, Random Forest, SHAP, Explainable AI, Flask, Payment Security}
+}
+
+% Set line spacing
+\onehalfspacing
+
+% ---------------------------------------------------------
+% Document Body
+% ---------------------------------------------------------
+\begin{document}
+
+% Preliminaries (Title, Certificate, Declaration, Acknowledgement, Abstract, TOC)
+\input{chapters/00_preliminaries.tex}
+
+% Main 21 Chapters
+\input{chapters/01_abstract.tex}
+\input{chapters/02_introduction.tex}
+\input{chapters/03_problem_identification.tex}
+\input{chapters/04_empathize_define.tex}
+\input{chapters/05_ideation.tex}
+\input{chapters/06_requirements.tex}
+\input{chapters/07_technology_stack.tex}
+\input{chapters/08_system_design.tex}
+\input{chapters/09_database_design.tex}
+\input{chapters/10_modules.tex}
+\input{chapters/11_uml_modeling.tex}
+\input{chapters/12_implementation.tex}
+\input{chapters/13_testing.tex}
+\input{chapters/14_results.tex}
+\input{chapters/15_code.tex}
+\input{chapters/16_evaluation.tex}
+\input{chapters/17_conclusion.tex}
+\input{chapters/18_future_enhancements.tex}
+\input{chapters/19_links.tex}
+\input{chapters/20_references.tex}
+\input{chapters/21_appendix.tex}
+
+\end{document}

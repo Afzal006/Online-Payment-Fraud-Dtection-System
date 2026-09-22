@@ -1,0 +1,134 @@
+% =========================================================
+% CHAPTER 15: CORE FUNCTIONALITY CODE
+% =========================================================
+\chapter{Core Functionality Code}
+\label{chap:code}
+
+\section{Introduction}
+This chapter highlights key source code implementations governing feature engineering, SHAP explainability, 4-tier risk policy evaluation, and pre-settlement Email OTP security. Full source code is available in the project repository.
+
+\section{Behavioral Feature Engineering Pipeline}
+The feature extraction routine derives crucial behavioral markers while rigorously excluding target-leakage attributes.
+
+\begin{lstlisting}[language=Python, caption={Feature Engineering Implementation (\texttt{ml/feature\_engineering.py})}]
+def engineer_features(df: pd.DataFrame, temporal_option: str = "hourOfDay", copy: bool = True) -> pd.DataFrame:
+    """
+    Constructs behavioral financial indicators from raw transaction fields.
+    """
+    df_out = df.copy() if copy else df
+
+    # Sender & Receiver balance discrepancy errors
+    df_out["errorBalanceOrig"] = df_out["oldbalanceOrg"] - df_out["newbalanceOrig"] - df_out["amount"]
+    df_out["errorBalanceDest"] = df_out["oldbalanceDest"] + df_out["amount"] - df_out["newbalanceDest"]
+
+    # Relative account draining ratio
+    df_out["amountToBalanceRatio"] = np.where(
+        df_out["oldbalanceOrg"] > 0,
+        df_out["amount"] / (df_out["oldbalanceOrg"] + 1.0),
+        df_out["amount"]
+    )
+
+    # Merchant destination detection
+    if "nameDest" in df_out.columns:
+        df_out["isMerchantDest"] = df_out["nameDest"].astype(str).str.startswith("M").astype(int)
+    else:
+        df_out["isMerchantDest"] = 0
+
+    # Diurnal hour extraction (mod 24)
+    if "step" in df_out.columns:
+        df_out["hourOfDay"] = (df_out["step"] % 24).astype(int)
+
+    return df_out
+\end{lstlisting}
+
+\section{SHAP Explanation \& Narrative Generation}
+The explainability engine wraps \texttt{shap.TreeExplainer} to extract local Shapley values and translate mathematical attributions into human-readable narratives.
+
+\begin{lstlisting}[language=Python, caption={SHAP Attribution \& Narrative Engine (\texttt{ml/explain.py})}]
+def explain_transaction(self, transaction: Dict[str, Any], top_k: int = 5) -> Dict[str, Any]:
+    # Transform input through preprocessing pipeline
+    X_trans = self._preprocessor.transform(X_engineered)
+    probabilities = self._classifier.predict_proba(X_trans)[0]
+    fraud_prob = float(probabilities[1])
+
+    # Compute exact Shapley values via TreeExplainer
+    shap_values_raw = self._explainer.shap_values(X_trans)
+    shap_fraud = shap_values_raw[1][0] if isinstance(shap_values_raw, list) else shap_values_raw[0]
+
+    # Map contributions to human-readable financial features
+    feature_contributions = []
+    for i, feat_name in enumerate(self._transformed_feature_names):
+        s_val = float(shap_fraud[i])
+        feature_contributions.append({
+            "feature": feat_name,
+            "display_name": FEATURE_NAME_MAP.get(feat_name, feat_name),
+            "shap_value": round(s_val, 4),
+            "direction": "increases_risk" if s_val > 0 else "decreases_risk"
+        })
+
+    # Sort features by absolute attribution magnitude
+    top_features = sorted(feature_contributions, key=lambda x: abs(x["shap_value"]), reverse=True)[:top_k]
+    narrative = self._generate_explanation_narrative(fraud_prob, top_features)
+
+    return {
+        "fraud_probability": round(fraud_prob, 4),
+        "risk_score": int(round(fraud_prob * 100)),
+        "top_features": top_features,
+        "explanation_text": narrative
+    }
+\end{lstlisting}
+
+\section{4-Tier Adaptive Risk Policy Scoring}
+The risk engine integrates ML output with behavioral risk indicators to establish the operational tier.
+
+\begin{lstlisting}[language=Python, caption={4-Tier Risk Policy Evaluation (\texttt{app/services/risk\_service.py})}]
+def evaluate_transaction_risk(ml_prob: float, signals_score: float) -> Dict[str, Any]:
+    # Weighted combination
+    w_ml, w_sig = 0.60, 0.40
+    raw_score = round(w_ml * (ml_prob * 100) + w_sig * signals_score)
+    risk_score = max(0, min(100, raw_score))
+
+    if risk_score <= 29:
+        return {"tier": "LOW", "action": "APPROVE_IMMEDIATELY", "status": "APPROVED", "requires_otp": False}
+    elif risk_score <= 59:
+        return {"tier": "MEDIUM", "action": "TRIGGER_OTP_VERIFICATION", "status": "OTP_REQUIRED", "requires_otp": True}
+    elif risk_score <= 79:
+        return {"tier": "HIGH", "action": "TRIGGER_OTP_VERIFICATION", "status": "OTP_REQUIRED", "requires_otp": True}
+    else:
+        return {"tier": "CRITICAL", "action": "TRIGGER_SECURITY_REVIEW", "status": "UNDER_REVIEW", "requires_otp": True}
+\end{lstlisting}
+
+\section{Pre-Settlement Email OTP Verification \& Atomic Settlement}
+Enforces the core security invariant ensuring zero balance deduction prior to OTP validation.
+
+\begin{lstlisting}[language=Python, caption={Atomic Settlement Guard (\texttt{app/services/transaction\_service.py})}]
+def verify_otp_and_settle(transaction_id: int, user_id: int, candidate_otp: str) -> Dict[str, Any]:
+    # Validate active challenge
+    challenge = OTPChallenge.query.filter_by(transaction_id=transaction_id, user_id=user_id, status='ACTIVE').first()
+    if not challenge or challenge.is_expired():
+        raise ValueError("Verification challenge expired or invalid.")
+
+    if not challenge.check_otp(candidate_otp):
+        challenge.attempt_count += 1
+        if challenge.attempt_count >= 3:
+            challenge.status = 'EXHAUSTED'
+        db.session.commit()
+        raise ValueError("Invalid verification code.")
+
+    # Atomic settlement execution
+    try:
+        tx = Transaction.query.get(transaction_id)
+        user = User.query.get(user_id)
+
+        # Deduct balance only upon valid verification
+        user.account_balance -= tx.amount
+        tx.status = 'APPROVED'
+        tx.decision = 'SETTLED_AFTER_OTP'
+        challenge.status = 'VERIFIED'
+
+        db.session.commit()
+        return {"success": True, "status": "APPROVED", "settled_amount": tx.amount}
+    except Exception as e:
+        db.session.rollback()
+        raise RuntimeError("Settlement failure, transaction rolled back.") from e
+\end{lstlisting}

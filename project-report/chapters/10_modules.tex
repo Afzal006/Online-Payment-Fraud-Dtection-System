@@ -1,0 +1,128 @@
+% =========================================================
+% CHAPTER 10: MODULE DESCRIPTION
+% =========================================================
+\chapter{Module Description}
+\label{chap:modules}
+
+\section{Module Architecture Overview}
+FraudShield AI is organized into nine discrete, decoupled functional modules. Each module encapsulates specific domain logic, communicates via structured Python service contracts, and interacts with persistent data stores through SQLAlchemy ORM.
+
+% ---------------------------------------------------------
+\section{Module 1: Authentication \& Identity Management}
+\begin{itemize}
+    \item \textbf{Purpose}: Handles user registration, cryptographically secure password hashing, JWT token issuance, and password recovery.
+    \item \textbf{Inputs}: Registration payload (\texttt{name}, \texttt{email}, \texttt{password}, \texttt{role}) or login credentials.
+    \item \textbf{Processing}: Hashes passwords via salted PBKDF2/Scrypt; enforces anti-enumeration timing; issues signed 24-hour JWT access tokens.
+    \item \textbf{Outputs}: Signed JWT Bearer token and sanitized user profile dictionary.
+    \item \textbf{Database Interaction}: Read/Write on \texttt{users} and \texttt{password\_reset\_tokens}.
+    \item \textbf{Related APIs}: \texttt{POST /api/auth/register}, \texttt{POST /api/auth/login}, \texttt{POST /api/auth/forgot-password}.
+    \item \textbf{Security Considerations}: Password hashes excluded from serialization; brute-force protection with account locking.
+    \item \textbf{Related Test Cases}: \texttt{test\_auth.py}, \texttt{test\_password\_reset.py}.
+\end{itemize}
+
+% ---------------------------------------------------------
+\section{Module 2: Payment \& Transaction Simulation}
+\begin{itemize}
+    \item \textbf{Purpose}: Accepts payment requests (UPI, P2P, VPA, Merchant QR), verifies Payment PIN, and manages transaction state transitions.
+    \item \textbf{Inputs}: Payment payload (\texttt{amount}, \texttt{type}, \texttt{beneficiary\_id} or recipient VPA/phone, \texttt{payment\_pin}).
+    \item \textbf{Processing}: Verifies 4--6 digit numeric PIN; verifies sender balance; triggers feature extraction and risk assessment; blocks balance deduction if flagged.
+    \item \textbf{Outputs}: Initial transaction status (\texttt{APPROVED}, \texttt{OTP\_REQUIRED}, or \texttt{UNDER\_REVIEW}).
+    \item \textbf{Database Interaction}: Read/Write on \texttt{transactions} and \texttt{users}.
+    \item \textbf{Related APIs}: \texttt{POST /api/transactions/predict}, \texttt{GET /api/transactions/my-history}.
+    \item \textbf{Security Considerations}: Account lockout after 3 consecutive failed PIN attempts; double-debit prevention.
+    \item \textbf{Related Test Cases}: \texttt{test\_payment\_pin\_flow.py}, \texttt{test\_upi\_payment\_flow.py}.
+\end{itemize}
+
+% ---------------------------------------------------------
+\section{Module 3: Feature Engineering \& Preprocessing}
+\begin{itemize}
+    \item \textbf{Purpose}: Sanitizes transaction attributes, removes data-leakage columns, and constructs 15 transformed mathematical features.
+    \item \textbf{Inputs}: Raw transaction parameters (\texttt{amount}, \texttt{type}, balances before and after).
+    \item \textbf{Processing}: Computes \texttt{errorBalanceOrig}, \texttt{errorBalanceDest}, \texttt{amountToBalanceRatio}, \texttt{hourOfDay}, and applies \texttt{ColumnTransformer} one-hot encoding.
+    \item \textbf{Outputs}: 15-dimensional numeric numpy array ready for model inference.
+    \item \textbf{Database Interaction}: Stateless (in-memory execution).
+    \item \textbf{Related APIs}: Internal service method (\texttt{engineer\_features()}).
+    \item \textbf{Security Considerations}: Strict exclusion of target leakage columns (\texttt{isFraud}, \texttt{isFlaggedFraud}, raw account IDs).
+    \item \textbf{Related Test Cases}: \texttt{test\_feature\_engineering.py}, \texttt{test\_preprocessing.py}.
+\end{itemize}
+
+% ---------------------------------------------------------
+\section{Module 4: Machine Learning Inference Engine}
+\begin{itemize}
+    \item \textbf{Purpose}: Evaluates transformed transaction vectors against the trained Random Forest ensemble model.
+    \item \textbf{Inputs}: 15-dimensional preprocessed numeric vector.
+    \item \textbf{Processing}: Executes \texttt{predict\_proba()} across 100 decision trees; computes continuous fraud probability $P(\text{fraud})$.
+    \item \textbf{Outputs}: Continuous probability value $P(\text{fraud}) \in [0.0, 1.0]$ and binary class prediction.
+    \item \textbf{Database Interaction}: Reads serialized \texttt{model.joblib} at application startup.
+    \item \textbf{Related APIs}: Internal service method (\texttt{InferenceService.predict()}).
+    \item \textbf{Security Considerations}: Memory-cached singleton pipeline to prevent disk I/O latency bottlenecks.
+    \item \textbf{Related Test Cases}: \texttt{test\_inference.py}, \texttt{test\_strong\_models.py}.
+\end{itemize}
+
+% ---------------------------------------------------------
+\section{Module 5: Explainable AI (SHAP) Engine}
+\begin{itemize}
+    \item \textbf{Purpose}: Computes exact Shapley feature attributions and synthesizes human-readable risk narratives.
+    \item \textbf{Inputs}: 15-dimensional feature vector and model prediction object.
+    \item \textbf{Processing}: Invokes \texttt{shap.TreeExplainer} to calculate Shapley values; maps encoded column indices to human-readable labels; derives top positive and negative risk drivers.
+    \item \textbf{Outputs}: Dual-view payload containing top-5 contributing features and natural language narrative.
+    \item \textbf{Database Interaction}: Serializes complete explanation dictionary to \texttt{transactions.explanation\_json}.
+    \item \textbf{Related APIs}: \texttt{GET /api/transactions/<id>/explanation}.
+    \item \textbf{Security Considerations}: Jargon-free presentation for customers; mathematical precision for SOC analysts.
+    \item \textbf{Related Test Cases}: \texttt{test\_shap.py}.
+\end{itemize}
+
+% ---------------------------------------------------------
+\section{Module 6: 4-Tier Adaptive Risk Engine}
+\begin{itemize}
+    \item \textbf{Purpose}: Combines ML probabilities with behavioral heuristic signals to produce the final $0-100$ risk score and assign routing tiers.
+    \item \textbf{Inputs}: ML fraud probability and behavioral telemetry (account draining ratio, transaction frequency).
+    \item \textbf{Processing}: Calculates weighted risk score:
+    \begin{equation}
+        \text{Risk Score} = \text{clamp}\left(\text{round}\left(w_{\text{ml}} \cdot (P(\text{fraud}) \times 100) + w_{\text{signals}} \cdot S_{\text{behavioral}}\right), 0, 100\right)
+    \end{equation}
+    \item \textbf{Outputs}: Standardized risk score ($0-100$), assigned tier (\textit{LOW, MEDIUM, HIGH, CRITICAL}), and security action directive.
+    \item \textbf{Database Interaction}: Read/Write on \texttt{transactions.risk\_score} and \texttt{transactions.risk\_level}.
+    \item \textbf{Related APIs}: Internal service method (\texttt{RiskDecisionService.evaluate()}).
+    \item \textbf{Security Considerations}: Guarantees deterministic threshold classification.
+    \item \textbf{Related Test Cases}: \texttt{test\_risk\_engine.py}, \texttt{test\_hybrid\_risk\_engine.py}.
+\end{itemize}
+
+% ---------------------------------------------------------
+\section{Module 7: Email OTP Step-Up Verification \& Settlement Guard}
+\begin{itemize}
+    \item \textbf{Purpose}: Generates, delivers, and validates 6-digit numeric OTP verification challenges for held transactions.
+    \item \textbf{Inputs}: Transaction ID, user ID, and candidate 6-digit OTP string.
+    \item \textbf{Processing}: Generates cryptographically secure 6-digit code; stores salted PBKDF2 hash; delivers via RFC-5322 SMTP TLS; validates against 180-second TTL and 3-attempt limit; triggers atomic balance deduction on success.
+    \item \textbf{Outputs}: Verification confirmation or rejection error.
+    \item \textbf{Database Interaction}: Read/Write on \texttt{otp\_challenges}, \texttt{transactions}, and \texttt{users}.
+    \item \textbf{Related APIs}: \texttt{POST /api/otp/generate}, \texttt{POST /api/otp/verify}.
+    \item \textbf{Security Considerations}: Settlement locked until verification; single-use OTP invalidation; rate-limited attempts.
+    \item \textbf{Related Test Cases}: \texttt{test\_email\_otp\_delivery.py}, \texttt{test\_medium\_high\_otp\_stepup.py}.
+\end{itemize}
+
+% ---------------------------------------------------------
+\section{Module 8: Beneficiary Intelligence}
+\begin{itemize}
+    \item \textbf{Purpose}: Manages trusted recipient accounts, tracks transfer history, and detects first-time beneficiary anomalies.
+    \item \textbf{Inputs}: Beneficiary details (\texttt{name}, \texttt{upi\_id}, \texttt{phone}, \texttt{nickname}).
+    \item \textbf{Processing}: Tenant-isolated CRUD operations; calculates recipient trust scores based on historical transaction frequency.
+    \item \textbf{Outputs}: Beneficiary list with verification status tags.
+    \item \textbf{Database Interaction}: Read/Write on \texttt{beneficiaries}.
+    \item \textbf{Related APIs}: \texttt{GET /api/beneficiaries}, \texttt{POST /api/beneficiaries}.
+    \item \textbf{Security Considerations}: Strict IDOR checks ensuring users cannot access or modify other users' beneficiaries.
+    \item \textbf{Related Test Cases}: \texttt{test\_beneficiary\_intelligence.py}.
+\end{itemize}
+
+% ---------------------------------------------------------
+\section{Module 9: Security Operations Center (SOC) \& Alert Triage}
+\begin{itemize}
+    \item \textbf{Purpose}: Provides security officers with real-time incident queues, system KPIs, and model drift telemetry.
+    \item \textbf{Inputs}: Analyst filter criteria, investigation notes, and alert resolution codes.
+    \item \textbf{Processing}: Computes SQL database aggregations; calculates fraud rates; updates alert status to \texttt{RESOLVED} or \texttt{DISMISSED} with immutable audit logs.
+    \item \textbf{Outputs}: Rendered Chart.js telemetry charts, alert triage tables, and resolution receipts.
+    \item \textbf{Database Interaction}: Read/Write on \texttt{alerts}, \texttt{soc\_cases}, \texttt{case\_notes}, and \texttt{audit\_logs}.
+    \item \textbf{Related APIs}: \texttt{GET /api/admin/overview}, \texttt{GET /api/admin/alerts}, \texttt{POST /api/admin/alerts/<id>/resolve}.
+    \item \textbf{Security Considerations}: Protected by strict \texttt{ADMIN} role enforcement.
+    \item \textbf{Related Test Cases}: \texttt{test\_admin\_soc.py}, \texttt{test\_soc\_case\_management.py}.
+\end{itemize}

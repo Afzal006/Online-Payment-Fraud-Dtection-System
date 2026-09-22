@@ -1,0 +1,67 @@
+% =========================================================
+% CHAPTER 3: PROBLEM IDENTIFICATION
+% =========================================================
+\chapter{Problem Identification}
+\label{chap:problem_identification}
+
+\section{Existing Scenario}
+The transition from batch-oriented banking to instantaneous digital settlement networks has created unprecedented transactional velocities. In modern retail payment environments, peer-to-peer (P2P) transfers, merchant point-of-sale QR transactions, and digital wallet debits settle within sub-second latencies. While this provides continuous liquidity, it severely compresses the observation window required to detect and intercept anomalous financial flows. Consequently, financial institutions face escalating risks from unauthorized account takeovers, social engineering scams, and rapid multi-hop fund dissipation.
+
+\section{Analysis of the Existing System}
+Legacy financial transaction monitoring platforms rely predominantly on deterministic rule engines. These systems operate by executing static logical conditions against structured transaction payloads:
+\begin{itemize}
+    \item \textit{Rule A}: If $\text{Transaction Amount} > \$50,000$, trigger manual analyst review.
+    \item \textit{Rule B}: If $\text{Transaction Hour} \in [01:00, 05:00]$, block transaction.
+    \item \textit{Rule C}: If $\text{Daily Velocity} > 5\text{ transactions/hour}$, flag account.
+\end{itemize}
+
+While computationally straightforward, deterministic rule architectures suffer from critical structural weaknesses when deployed in dynamic, large-scale financial environments.
+
+\section{Drawbacks of Traditional Approaches}
+\begin{table}[h]
+\centering
+\caption{Comparison of Traditional Rule Engines vs. Machine Learning Defenses}
+\label{tab:rule_vs_ml}
+\begin{tabularx}{\textwidth}{lXX}
+\toprule
+\textbf{Evaluation Dimension} & \textbf{Traditional Rule-Based Systems} & \textbf{Intelligent ML \& XAI Systems} \\
+\midrule
+\textbf{Adaptability} & Static; requires manual rule writing and regression testing by analysts. & Dynamic; learns non-linear multi-feature interactions automatically. \\
+\addlinespace
+\textbf{False Positive Rate} & Extremely high; legitimate customer spending spikes trigger blocks. & Low; assesses multi-dimensional behavioral context. \\
+\addlinespace
+\textbf{Zero-Day Detection} & Incapable; easily bypassed by splitting transfers below thresholds. & High; detects anomalous balance discrepancies and ratios. \\
+\addlinespace
+\textbf{Explainability} & Binary rule match (e.g., ``Rule 104 Fired''); lacks holistic nuance. & Exact mathematical Shapley values with plain-English translations. \\
+\addlinespace
+\textbf{Settlement Safety} & Often debits balance immediately or outright rejects transaction. & Holds suspicious transactions; validates via Email OTP prior to debit. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The primary operational deficiencies include:
+\begin{enumerate}[label=\arabic*.]
+    \item \textbf{High False Positive Inefficiencies}: Legitimate customers conducting infrequent high-value purchases (e.g., medical payments, tuition fees) are blocked, causing severe brand friction.
+    \item \textbf{Inability to Detect Compound Anomalies}: Sophisticated fraudsters manipulate balance states and timing without tripping single-variable threshold rules.
+    \item \textbf{The Black-Box Opacity Dilemma}: Financial institutions that attempt to deploy complex deep learning models often fail regulatory scrutiny because the models cannot justify why a transaction was declined.
+    \item \textbf{Premature Settlement Deduction Flaws}: Poorly integrated systems often debit the sender's account balance before security checks complete, necessitating complex reversal and chargeback workflows when fraud is detected retroactively.
+\end{enumerate}
+
+\section{Problem Statement}
+\begin{tcolorbox}[colback=lightgraybg, colframe=primaryblue, title=\textbf{\color{white}Formal Engineering Problem Statement}, arc=3pt]
+Design, implement, and validate an end-to-end, real-time Online Payment Fraud Detection System that:
+\begin{enumerate}[label=(\roman*)]
+    \item Classifies digital payment transactions with high precision ($\ge 98\%$) and high recall ($\ge 98\%$) under extreme class imbalance.
+    \item Combines supervised machine learning with behavioral risk signals to compute a standardized $0-100$ operational risk score.
+    \item Delivers mathematically rigorous, dual-perspective Explainable AI (SHAP) attributions for every evaluation.
+    \item Applies a 4-tier adaptive security policy that enforces pre-settlement Email OTP challenges, strictly preventing unauthorized monetary balance deduction prior to successful multi-factor authentication.
+    \item Provides an administrative SOC interface for real-time alert triage, audit logging, and model drift telemetry.
+\end{enumerate}
+\end{tcolorbox}
+
+\section{Target Users}
+\begin{itemize}
+    \item \textbf{Retail Banking Customers}: Individuals initiating daily P2P and merchant payments who require frictionless legitimate checkout and transparent security alerts.
+    \item \textbf{FinTech Fraud Analysts \& SOC Officers}: Security personnel responsible for investigating high-risk incidents, reviewing SHAP feature attributions, and resolving alerts.
+    \item \textbf{System Administrators}: Technical operators responsible for monitoring model drift, managing user accounts, and auditing database integrity.
+\end{itemize}

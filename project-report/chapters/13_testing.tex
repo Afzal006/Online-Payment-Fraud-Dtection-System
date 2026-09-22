@@ -1,0 +1,93 @@
+% =========================================================
+% CHAPTER 13: TESTING
+% =========================================================
+\chapter{Testing and Verification}
+\label{chap:testing}
+
+\section{Testing Strategy and Methodology}
+To guarantee enterprise reliability, security, and algorithmic precision, FraudShield AI was validated through a comprehensive automated testing strategy using \textbf{Pytest 9.1}. 
+
+The testing methodology incorporates four distinct levels:
+\begin{enumerate}[label=\arabic*.]
+    \item \textbf{Unit Testing}: Validates isolated functions, mathematical feature transformations, risk scoring clamps, and cryptographic hashing utilities.
+    \item \textbf{Integration Testing}: Tests multi-component interactions across database transactions, ORM cascade deletes, JWT authentication middleware, and ML model inference pipelines.
+    \item \textbf{Security \& Penetration Testing}: Verifies defense mechanisms against account takeovers, Insecure Direct Object References (IDOR), PIN brute-force attempts, and unauthorized balance manipulation.
+    \item \textbf{End-to-End (E2E) System Testing}: Simulates complete customer payment journeys from login to payment initiation, risk scoring, email OTP step-up, and final atomic settlement.
+\end{enumerate}
+
+\section{Test Execution Summary}
+\begin{tcolorbox}[colback=lightgraybg, colframe=accentemerald, title=\textbf{\color{white}Empirical Test Execution Results}, arc=3pt]
+\textbf{Test Runner}: Pytest 9.1.1 on Python 3.14 (Win32 / Linux / macOS)\\
+\textbf{Total Automated Tests}: 502\\
+\textbf{Passed Tests}: \textbf{501 (99.8\%)}\\
+\textbf{Failed Tests}: 1 (Environment setup module due to platform-specific DLL control policy)\\
+\textbf{Test Isolation}: 100\% in-memory SQLite database (\texttt{sqlite:///:memory:}) ensuring zero test pollution.\\
+\textbf{Average Execution Time}: $< 0.15\text{ seconds}$ per test case.
+\end{tcolorbox}
+
+\section{Detailed Test Cases and Verification Matrix}
+Table~\ref{tab:test_cases_table} provides a representative sample of automated test cases covering core system functions.
+
+\begin{longtable}{lp{2.4cm}p{3.2cm}p{3.0cm}p{3.2cm}c}
+\caption{System Test Cases and Verification Results} \label{tab:test_cases_table} \\
+\toprule
+\textbf{Test ID} & \textbf{Module} & \textbf{Test Scenario} & \textbf{Input Data} & \textbf{Expected Result} & \textbf{Status} \\
+\midrule
+\endfirsthead
+\caption[]{System Test Cases and Verification Results (Continued)} \\
+\toprule
+\textbf{Test ID} & \textbf{Module} & \textbf{Test Scenario} & \textbf{Input Data} & \textbf{Expected Result} & \textbf{Status} \\
+\midrule
+\endhead
+\midrule
+\multicolumn{6}{r}{\textit{Continued on next page...}} \\
+\bottomrule
+\endfoot
+\bottomrule
+\endlastfoot
+
+\textbf{TC-AUTH-01} & Auth & Valid User Registration & Name, Email, Password & User created (HTTP 201), password hashed & \textbf{PASS} \\
+\addlinespace
+\textbf{TC-AUTH-02} & Auth & Duplicate Email Registration & Existing registered email & HTTP 409 Conflict, duplicate rejected & \textbf{PASS} \\
+\addlinespace
+\textbf{TC-AUTH-03} & Auth & Valid User Login & Valid email and password & HTTP 200, returns signed JWT access token & \textbf{PASS} \\
+\addlinespace
+\textbf{TC-AUTH-04} & Auth & Invalid Login Credentials & Incorrect password & HTTP 401 Unauthorized, uniform message & \textbf{PASS} \\
+\addlinespace
+\textbf{TC-PIN-01} & Payment & Valid Payment PIN Verification & Correct 4-digit PIN & PIN verified successfully & \textbf{PASS} \\
+\addlinespace
+\textbf{TC-PIN-02} & Payment & 3 Failed PIN Lockout & 3 invalid PIN submissions & Account locked, further attempts blocked & \textbf{PASS} \\
+\addlinespace
+\textbf{TC-FEAT-01} & ML & Feature Extraction Pipeline & Raw transaction dict & 15-element transformed numpy array & \textbf{PASS} \\
+\addlinespace
+\textbf{TC-FEAT-02} & ML & Leakage Column Removal & Data containing \texttt{isFraud} & Target columns stripped prior to inference & \textbf{PASS} \\
+\addlinespace
+\textbf{TC-ML-01} & ML & Legitimate Transaction Prediction & Routine payment (\$35.00) & $P(\text{fraud}) < 0.10$, predicted class = 0 & \textbf{PASS} \\
+\addlinespace
+\textbf{TC-ML-02} & ML & Fraudulent Transfer Prediction & Account drain (\$650,000) & $P(\text{fraud}) \ge 0.90$, predicted class = 1 & \textbf{PASS} \\
+\addlinespace
+\textbf{TC-SHAP-01} & XAI & SHAP TreeExplainer Attribution & Flagged transfer & Generates top-5 feature drivers \& text & \textbf{PASS} \\
+\addlinespace
+\textbf{TC-RISK-01} & Risk & Low Risk Immediate Approval & Score = 15 ($0-29$) & Status \texttt{APPROVED}, immediate settlement & \textbf{PASS} \\
+\addlinespace
+\textbf{TC-RISK-02} & Risk & Medium Risk OTP Step-Up & Score = 45 ($30-59$) & Status \texttt{OTP\_REQUIRED}, balance held & \textbf{PASS} \\
+\addlinespace
+\textbf{TC-RISK-03} & Risk & High Risk OTP \& Alert Trigger & Score = 72 ($60-79$) & Status \texttt{OTP\_REQUIRED}, alert created & \textbf{PASS} \\
+\addlinespace
+\textbf{TC-RISK-04} & Risk & Critical Risk SOC Review & Score = 92 ($80-100$) & Status \texttt{UNDER\_REVIEW}, balance locked & \textbf{PASS} \\
+\addlinespace
+\textbf{TC-OTP-01} & OTP & Cryptographic OTP Generation & Transaction ID & 6-digit code created, hashed in DB & \textbf{PASS} \\
+\addlinespace
+\textbf{TC-OTP-02} & OTP & Valid OTP Verification & Correct 6-digit code & Status $\to$ \texttt{APPROVED}, balance debited & \textbf{PASS} \\
+\addlinespace
+\textbf{TC-OTP-03} & OTP & Incorrect OTP Code & Wrong 6-digit code & Attempt count decremented, rejected & \textbf{PASS} \\
+\addlinespace
+\textbf{TC-OTP-04} & OTP & Expired OTP Verification & Candidate code after 180s & Challenge marked \texttt{EXPIRED}, rejected & \textbf{PASS} \\
+\addlinespace
+\textbf{TC-SEC-01} & Security & Settlement Balance Invariant & Unverified transaction & Sender balance remains 100\% intact & \textbf{PASS} \\
+\addlinespace
+\textbf{TC-SEC-02} & Security & Beneficiary Tenant Isolation & User A accesses User B ID & HTTP 404/403 IDOR rejection & \textbf{PASS} \\
+\addlinespace
+\textbf{TC-SOC-01} & SOC & SOC Alert Resolution & Alert ID + Admin note & Alert marked \texttt{RESOLVED}, audit logged & \textbf{PASS} \\
+
+\end{longtable}

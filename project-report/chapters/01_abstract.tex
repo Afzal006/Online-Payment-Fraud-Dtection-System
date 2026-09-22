@@ -1,0 +1,11 @@
+% =========================================================
+% CHAPTER 1: ABSTRACT
+% =========================================================
+\chapter{Abstract}
+\label{chap:abstract}
+
+The exponential acceleration of digital payment systems—including Unified Payments Interface (UPI), peer-to-peer (P2P) transfers, merchant QR transactions, and digital banking—has transformed modern commerce while simultaneously exposing consumers and financial institutions to sophisticated payment fraud. Traditional fraud prevention relies primarily on static, heuristic rule-based systems that exhibit severe operational limitations, including inflated false positive rates that introduce unnecessary customer friction and an inability to detect novel or evolving account-draining schemes. 
+
+This project presents \textbf{FraudShield AI}, an enterprise-grade, end-to-end intelligent payment fraud detection, explainable risk assessment, and adaptive multi-factor verification platform. The proposed system integrates supervised machine learning classification using a tuned Random Forest ensemble ($F_1 = 0.9985$, $\text{Precision} = 1.0000$, $\text{Recall} = 0.9970$) with dynamic behavioral risk telemetry, including account-draining ratios, transaction velocity, and diurnal temporal anomalies. To resolve the black-box opacity of conventional machine learning classifiers, the system incorporates \textbf{SHapley Additive exPlanations (SHAP)} via \texttt{shap.TreeExplainer} to deliver dual-perspective interpretability: customer-friendly natural language explanations and technical feature attribution waterfalls for security analysts. 
+
+The platform enforces a real-time \textbf{4-Tier Adaptive Risk Policy} (\textit{LOW, MEDIUM, HIGH, CRITICAL}) governed by a critical pre-settlement security invariant: suspicious transactions are held in a pending state and account balances are strictly preserved until cryptographic \textbf{Email OTP step-up verification} is successfully completed. Built using Python, Flask 3.1, SQLAlchemy ORM, Vanilla Glassmorphism CSS, and Chart.js, the system includes a dedicated Security Operations Center (SOC) portal and achieves comprehensive operational resilience, validated across 501 automated unit, integration, and security test cases.

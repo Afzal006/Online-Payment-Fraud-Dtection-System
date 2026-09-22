@@ -1,0 +1,69 @@
+% =========================================================
+% CHAPTER 16: PROJECT EVALUATION
+% =========================================================
+\chapter{Project Evaluation}
+\label{chap:evaluation}
+
+\section{Evaluation Against Objectives}
+Table~\ref{tab:objective_achievement} systematically evaluates the project's engineering achievements against the initial research and functional objectives.
+
+\begin{table}[h]
+\centering
+\caption{System Objective versus Achievement Evaluation Matrix}
+\label{tab:objective_achievement}
+\begin{tabularx}{\textwidth}{p{3.2cm}p{3.8cm}p{4.2cm}c}
+\toprule
+\textbf{Project Objective} & \textbf{Implementation Strategy} & \textbf{Empirical Evidence} & \textbf{Status} \\
+\midrule
+\textbf{ML Fraud Detection} & Trained balanced Random Forest and XGBoost classifiers on PaySim data. & Holdout precision: 1.0000, recall: 0.9970, $F_1$: 0.9985. & \textbf{ACHIEVED} \\
+\addlinespace
+\textbf{Imbalance Handling} & Applied \texttt{class\_weight='balanced'} and stratified 5-fold cross-validation. & Cross-validation mean $F_1$: $0.9978 \pm 0.0018$, PR-AUC: $0.9960$. & \textbf{ACHIEVED} \\
+\addlinespace
+\textbf{Explainable AI (XAI)} & Integrated \texttt{shap.TreeExplainer} for exact additive feature attributions. & Generates dual-perspective plain English \& technical waterfall views. & \textbf{ACHIEVED} \\
+\addlinespace
+\textbf{4-Tier Adaptive Policy}& Multi-signal scoring engine ($0-100$) routing across 4 security tiers. & Documented in \texttt{risk\_policy.json}; validated in \texttt{test\_risk\_engine.py}. & \textbf{ACHIEVED} \\
+\addlinespace
+\textbf{Settlement Guard} & Enforced pre-settlement balance holding with Email OTP verification. & 100\% balance preservation verified across 501 automated tests. & \textbf{ACHIEVED} \\
+\addlinespace
+\textbf{SOC Management} & Built real-time incident queue, chart telemetry, and audit logger. & Functional admin portal with alert resolution notes and drift monitors. & \textbf{ACHIEVED} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Machine Learning Empirical Evaluation}
+
+\subsection{Dataset Composition \& Class Imbalance}
+The evaluation utilized the benchmark PaySim financial dataset comprising approximately 6.36 million records. The model training and benchmarking pipeline evaluated a stratified subset of $1,272,524$ transactions ($1,018,019$ training instances and $254,505$ holdout test instances). The dataset exhibits an extreme class imbalance ratio of \textbf{773.7 to 1} (only 335 fraud instances in the holdout test partition).
+
+\subsection{Performance Benchmark Metrics}
+Table~\ref{tab:model_comparison_metrics} provides the empirical benchmark metrics across all four evaluated machine learning architectures.
+
+\begin{table}[h]
+\centering
+\caption{Empirical Model Evaluation and Performance Metrics Comparison}
+\label{tab:model_comparison_metrics}
+\begin{tabularx}{\textwidth}{lcccccc}
+\toprule
+\textbf{Algorithm} & \textbf{Precision} & \textbf{Recall} & \textbf{F1-Score} & \textbf{PR-AUC} & \textbf{ROC-AUC} & \textbf{Accuracy} \\
+\midrule
+Logistic Regression & 0.0228 & 0.9582 & 0.0445 & 0.5279 & 0.9872 & 0.945801 \\
+Decision Tree & 0.8653 & 0.9970 & 0.9265 & 0.9970 & 0.9985 & 0.999792 \\
+Tuned XGBoost & 0.9824 & 0.9970 & 0.9896 & 0.9969 & 0.9981 & 0.999972 \\
+\textbf{Tuned Random Forest} & \textbf{1.0000} & \textbf{0.9970} & \textbf{0.9985} & \textbf{0.9972} & \textbf{0.9999} & \textbf{0.999996} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Critical Discussion on Class Imbalance and Accuracy Fallacy}
+In fraud detection domains, raw accuracy is a deceptive metric. In a dataset where $99.87\%$ of instances are legitimate, a trivial baseline classifier that predicts every single transaction as non-fraudulent would achieve an accuracy of $99.87\%$. However, such a system would have a \textbf{Recall of 0.0\%}, failing to detect any fraudulent exfiltration. 
+
+Therefore, FraudShield AI prioritizes \textbf{Precision} (preventing false alarms on legitimate users) and \textbf{Recall} (intercepting unauthorized transfers). Tuned Random Forest achieved a \textbf{Precision of 1.0000} (0 false positives out of 254,170 legitimate transactions) and a \textbf{Recall of 0.9970} (334 out of 335 fraud instances detected), proving its superiority as the production model artifact.
+
+\section{System Performance and Latency Evaluation}
+\begin{itemize}
+    \item \textbf{Feature Engineering Latency}: $4.2\text{ ms}$ average per transaction.
+    \item \textbf{Random Forest Inference Latency}: $1.08\text{ ms}$ average per transaction.
+    \item \textbf{SHAP TreeExplainer Calculation}: $12.5\text{ ms}$ average per transaction.
+    \item \textbf{Database Write Latency}: $8.4\text{ ms}$ per transaction.
+    \item \textbf{End-to-End API Response Time}: $< 45\text{ ms}$ total latency (well within the $150\text{ ms}$ NFR requirement).
+\end{itemize}

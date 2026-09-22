@@ -1,0 +1,82 @@
+% =========================================================
+% CHAPTER 12: IMPLEMENTATION / WORKING PRINCIPLE
+% =========================================================
+\chapter{Implementation and Working Principle}
+\label{chap:implementation}
+
+\section{System Implementation Architecture}
+The implementation of FraudShield AI transforms theoretical machine learning models and security policies into a high-performance, real-time software system. The platform is structured around a decoupled service-oriented paradigm within Python and Flask 3.1.
+
+\section{Core Working Principle and Transaction Lifecycle}
+The complete operational execution flow follows an exact sequence:
+\begin{enumerate}[label=\arabic*.]
+    \item \textbf{User Authentication}: Customer authenticates with email and password, receiving a signed 24-hour JWT token.
+    \item \textbf{Transaction Initiation}: Customer submits payment details and authorizes the request using a 4--6 digit numeric PIN.
+    \item \textbf{Input Validation \& PIN Verification}: Backend validates payload schema, verifies numeric PIN against salted cryptographic hashes, checks account lockout state, and verifies account balance sufficiency.
+    \item \textbf{Feature Extraction \& Engineering}: Transforms 11 raw transaction fields into 15 engineered features, calculating balance reconciliation errors, amount-to-balance ratios, and diurnal temporal markers.
+    \item \textbf{Machine Learning Inference}: Preprocessor scales numeric features and one-hot encodes transaction types; Random Forest ensemble outputs probability $P(\text{fraud}) \in [0.0, 1.0]$.
+    \item \textbf{SHAP Feature Attribution}: \texttt{shap.TreeExplainer} decomposes the prediction into additive feature contributions, identifying top risk drivers and generating natural language summaries.
+    \item \textbf{Composite Risk Scoring \& Policy Routing}: Combines ML probability with behavioral signals into a $0-100$ score, assigning the transaction to one of four policy tiers (\textit{LOW, MEDIUM, HIGH, CRITICAL}).
+    \item \textbf{Adaptive Security \& Pre-Settlement Protection}:
+    \begin{itemize}
+        \item For \textit{LOW} risk ($0-29$): Transaction is approved and settled immediately.
+        \item For \textit{MEDIUM} ($30-59$) and \textit{HIGH} ($60-79$) risk: Transaction is placed in \texttt{OTP\_REQUIRED}; sender balance is \textbf{not deducted}; 6-digit Email OTP is generated and delivered via SMTP TLS.
+        \item For \textit{CRITICAL} risk ($80-100$): Transaction is routed to \texttt{UNDER\_REVIEW}; SOC incident alert is opened; balance remains untouched.
+    \end{itemize}
+    \item \textbf{OTP Verification \& Atomic Settlement}: Upon entering the valid 6-digit OTP code within 180 seconds, the backend executes an atomic ACID transaction: deducting the sender's balance, crediting the recipient, and marking the transaction as \texttt{APPROVED}.
+\end{enumerate}
+
+\section{Mathematical Formulations and Core Logic}
+
+\subsection{1. Behavioral Feature Engineering}
+To capture account draining and artificial balance manipulation, the system computes the following behavioral metrics:
+\begin{align}
+    \text{errorBalanceOrig} &= \text{oldbalanceOrg} - \text{newbalanceOrig} - \text{amount} \\
+    \text{errorBalanceDest} &= \text{oldbalanceDest} + \text{amount} - \text{newbalanceDest} \\
+    \text{amountToBalanceRatio} &= \frac{\text{amount}}{\text{oldbalanceOrg} + 1.0} \\
+    \text{hourOfDay} &= \text{step} \pmod{24}
+\end{align}
+
+\subsection{2. SHAP Additive Feature Attribution}
+The explainability engine uses \texttt{shap.TreeExplainer} to calculate local Shapley values based on cooperative game theory. For feature $i$ and transaction instance $x$:
+\begin{equation}
+    \phi_i(x) = \sum_{S \subseteq F \setminus \{i\}} \frac{|S|!(|F| - |S| - 1)!}{|F|!} \left( f(S \cup \{i\}) - f(S) \right)
+\end{equation}
+where $F$ is the total set of 15 features, $S$ is a subset of features, and $f(S)$ represents the expected model output conditioned on subset $S$. The sum of all feature attributions equals the difference between the model output $f(x)$ and the baseline expected value $E[f(x)]$:
+\begin{equation}
+    f(x) = E[f(x)] + \sum_{i=1}^{|F|} \phi_i(x)
+\end{equation}
+
+\subsection{3. 4-Tier Adaptive Risk Policy Implementation}
+Table~\ref{tab:risk_policy_table} specifies the operational risk tiers, scoring boundaries, required authentication challenges, and settlement behavior.
+
+\begin{table}[h]
+\centering
+\caption{4-Tier Real-Time Adaptive Risk Policy Specification}
+\label{tab:risk_policy_table}
+\begin{tabularx}{\textwidth}{lcp{3.2cm}p{2.5cm}X}
+\toprule
+\textbf{Risk Tier} & \textbf{Score Range} & \textbf{System Action Code} & \textbf{Initial Status} & \textbf{Settlement \& OTP Rule} \\
+\midrule
+\textbf{LOW} & $0 - 29$ & \texttt{APPROVE\_IMMEDIATELY} & \texttt{APPROVED} & Immediate atomic balance settlement; OTP not required. \\
+\addlinespace
+\textbf{MEDIUM} & $30 - 59$ & \texttt{TRIGGER\_OTP\_VERIFY} & \texttt{OTP\_REQUIRED} & Zero balance deducted; Email OTP required for settlement. \\
+\addlinespace
+\textbf{HIGH} & $60 - 79$ & \texttt{TRIGGER\_OTP\_VERIFY} & \texttt{OTP\_REQUIRED} & Zero balance deducted; Email OTP required; Security alert opened. \\
+\addlinespace
+\textbf{CRITICAL} & $80 - 100$ & \texttt{TRIGGER\_SOC\_REVIEW} & \texttt{UNDER\_REVIEW} & Zero balance deducted; SOC analyst review and authorization required. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Email OTP Security Architecture}
+The step-up verification pipeline adheres to strict cryptographic standards:
+\begin{enumerate}[label=\alph*.]
+    \item \textbf{Generation}: Utilizes Python's cryptographically secure random number generator (\texttt{secrets.randbelow(900000) + 100000}) to generate a uniform 6-digit code.
+    \item \textbf{Storage}: The plaintext code is never stored in persistent tables; only a salted PBKDF2/Scrypt hash is retained in \texttt{otp\_challenges.otp\_hash}.
+    \item \textbf{Delivery}: The code is formatted into an RFC-5322 HTML email template and transmitted via SMTP over TLS (Port 587).
+    \item \textbf{Verification}: The incoming candidate code is validated against the active challenge within a 180-second window, allowing a maximum of 3 attempts before challenge invalidation.
+\end{enumerate}
+
+\section{Error Handling and Fault Resilience}
+All database operations involving financial balance updates and OTP verification are executed within explicit \texttt{db.session.begin\_nested()} blocks. If any exception occurs (e.g., database lock timeout, network failure), the session triggers an immediate \texttt{db.session.rollback()}, guaranteeing that account balances and ledgers remain in a strictly consistent state.

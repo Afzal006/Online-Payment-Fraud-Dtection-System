@@ -1,0 +1,30 @@
+% =========================================================
+% CHAPTER 18: FUTURE ENHANCEMENTS
+% =========================================================
+\chapter{Future Enhancements}
+\label{chap:future_enhancements}
+
+\section{Overview of Future Directions}
+While FraudShield AI represents a complete, verified, and operational fraud detection platform, several advanced enhancements are identified for future research and production scaling.
+
+\section{Identified Areas for Future Work}
+
+\subsection{1. Graph Neural Networks (GNNs) for Multi-Hop Fraud Rings}
+\textbf{[FUTURE WORK --- NOT YET IMPLEMENTED]}\\
+Future releases will explore Graph Convolutional Networks (GCNs) and Relational Graph Transformers to model transaction networks as dynamic, heterogeneous graphs. This will enable the detection of circular routing, mule account rings, and multi-hop fund dissipation schemes that evade single-transaction analysis.
+
+\subsection{2. Real-Time Distributed Event Streaming with Apache Kafka}
+\textbf{[FUTURE WORK --- NOT YET IMPLEMENTED]}\\
+To support tier-1 bank scale processing $> 100,000\text{ transactions/second}$, the system architecture can be upgraded from synchronous HTTP REST to event-driven architectures utilizing Apache Kafka for distributed transaction ingestion and Apache Flink for real-time windowed velocity feature computation.
+
+\subsection{3. Biometric WebAuthn (FIDO2) Multi-Factor Verification}
+\textbf{[FUTURE WORK --- NOT YET IMPLEMENTED]}\\
+Integrating FIDO2 / WebAuthn passwordless biometric authentication (e.g., TouchID, FaceID, Windows Hello) will allow customers to complete step-up verification via hardware-backed public-key cryptography directly within their mobile or desktop browser, supplementing Email OTP.
+
+\subsection{4. Automated Continual Learning and Concept Drift Pipelines}
+\textbf{[FUTURE WORK --- NOT YET IMPLEMENTED]}\\
+Implementing an automated MLOps retraining pipeline with Population Stability Index (PSI) and Wasserstein distance monitoring will detect statistical feature drift and retrain model weights automatically in response to emerging fraud typologies.
+
+\subsection{5. Direct Banking Switch \& Payment Gateway Hooks}
+\textbf{[FUTURE WORK --- NOT YET IMPLEMENTED]}\\
+Direct integration with live NPCI UPI switches, ISO 8583 / ISO 20022 banking protocols, and commercial payment gateways (Razorpay, Stripe) will enable seamless deployment into live production banking environments.

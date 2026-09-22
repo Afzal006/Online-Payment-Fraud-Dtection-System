@@ -1,0 +1,63 @@
+% =========================================================
+% CHAPTER 21: APPENDIX
+% =========================================================
+\chapter{Appendix}
+\label{chap:appendix}
+
+\section{Complete REST API Endpoint Catalog}
+Table~\ref{tab:api_catalog} summarizes the primary REST API endpoints exposed by the Flask backend application.
+
+\begin{table}[h]
+\centering
+\caption{System REST API Endpoint Catalog}
+\label{tab:api_catalog}
+\begin{tabularx}{\textwidth}{llp{3.2cm}X}
+\toprule
+\textbf{HTTP Verb} & \textbf{Endpoint Route} & \textbf{Authorization} & \textbf{Description} \\
+\midrule
+\texttt{POST} & \texttt{/api/auth/register} & Public & Registers new user account with hashed password. \\
+\texttt{POST} & \texttt{/api/auth/login} & Public & Authenticates credentials; returns signed JWT. \\
+\texttt{POST} & \texttt{/api/auth/forgot-password} & Public & Anti-enumeration password reset email request. \\
+\texttt{POST} & \texttt{/api/auth/reset-password} & Public & Validates cryptographic reset token and updates password. \\
+\texttt{GET} & \texttt{/api/auth/me} & Authenticated & Returns current authenticated customer profile. \\
+\texttt{GET} & \texttt{/api/beneficiaries} & Authenticated & Lists saved beneficiaries for the active user. \\
+\texttt{POST} & \texttt{/api/beneficiaries} & Authenticated & Adds a new trusted beneficiary recipient. \\
+\texttt{POST} & \texttt{/api/transactions/predict} & Authenticated & Submits payment, runs ML inference, and sets status. \\
+\texttt{GET} & \texttt{/api/transactions/my-history} & Authenticated & Retrieves personal historical payment ledger. \\
+\texttt{POST} & \texttt{/api/otp/generate} & Authenticated & Generates 6-digit numeric OTP and delivers via SMTP. \\
+\texttt{POST} & \texttt{/api/otp/verify} & Authenticated & Verifies OTP and executes atomic balance settlement. \\
+\texttt{GET} & \texttt{/api/admin/overview} & Admin Only & Returns SOC dashboard high-level KPIs. \\
+\texttt{GET} & \texttt{/api/admin/alerts} & Admin Only & Retrieves open security incident alerts. \\
+\texttt{POST} & \texttt{/api/admin/alerts/<id>/resolve} & Admin Only & Resolves high-risk alert with analyst audit notes. \\
+\texttt{GET} & \texttt{/api/admin/transactions} & Admin Only & Audits global multi-user transaction records. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Environment Configuration Template (Secrets Redacted)}
+Below is the standard configuration template illustrating how configuration parameters are managed securely without hardcoding credentials.
+
+\begin{lstlisting}[language=bash, caption={Sanitized Environment Template (\texttt{.env.example})}]
+# Flask Application Environment
+FLASK_APP=run.py
+FLASK_ENV=development
+SECRET_KEY=<REDACTED_APP_SECRET_KEY>
+JWT_SECRET_KEY=<REDACTED_JWT_SIGNING_KEY>
+
+# Database Configuration
+DATABASE_URL=sqlite:///instance/fraud_detection.db
+
+# SMTP Email Configuration (RFC-5322 TLS)
+MAIL_PROVIDER=smtp
+MAIL_SERVER=smtp.gmail.com
+MAIL_PORT=587
+MAIL_USE_TLS=true
+MAIL_USERNAME=<REDACTED_SMTP_USERNAME>
+MAIL_PASSWORD=<REDACTED_SMTP_APP_PASSWORD>
+MAIL_DEFAULT_SENDER=noreply@fraudshield.ai
+
+# ML Model Paths
+ML_MODEL_PATH=ml/artifacts/model.joblib
+ML_PREPROCESSOR_PATH=ml/artifacts/preprocessor.joblib
+RISK_POLICY_PATH=ml/artifacts/risk_policy.json
+\end{lstlisting}

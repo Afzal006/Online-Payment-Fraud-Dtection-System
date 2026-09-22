@@ -1,0 +1,116 @@
+% =========================================================
+% CHAPTER 6: REQUIREMENTS ANALYSIS
+% =========================================================
+\chapter{Requirements Analysis}
+\label{chap:requirements}
+
+\section{User Requirements}
+\subsection{Customer / End-User Requirements}
+\begin{itemize}
+    \item Securely register, verify email ownership, and authenticate using email and password.
+    \item Maintain Virtual Payment Address (VPA) / UPI ID, view current account balance, and manage saved beneficiaries.
+    \item Initiate simulated P2P transfers and merchant payments protected by a mandatory 4--6 digit numeric Payment PIN.
+    \item Receive immediate, frictionless approval for standard low-risk transactions.
+    \item Receive instantaneous, RFC-compliant Email OTP challenges for held transactions, with clear explanations of why verification is required.
+    \item Inspect personal transaction ledgers with detailed risk assessments and status tags.
+\end{itemize}
+
+\subsection{Security Operations (SOC) / Admin Requirements}
+\begin{itemize}
+    \item Access dedicated SOC management portals protected by role-based authorization (\texttt{ADMIN}).
+    \item Monitor high-level system KPIs, including total transaction volume, aggregate fraud rate, risk tier distributions, and alert backlogs.
+    \item Triage open security alerts, inspect SHAP waterfall feature drivers, and submit resolution notes with audit timestamps.
+    \item Audit historical ledger records and inspect model drift metrics.
+\end{itemize}
+
+\section{Functional Requirements}
+The functional capabilities of FraudShield AI are formally specified in Table~\ref{tab:functional_requirements}.
+
+\begin{table}[h]
+\centering
+\caption{System Functional Requirements Specification}
+\label{tab:functional_requirements}
+\begin{tabularx}{\textwidth}{lp{3.2cm}X}
+\toprule
+\textbf{Req ID} & \textbf{Subsystem} & \textbf{Detailed Functional Specification} \\
+\midrule
+\textbf{FR-01} & Authentication & System shall register users, hash passwords using PBKDF2/Scrypt, issue 24-hour signed JWT tokens, and enforce anti-enumeration protections. \\
+\addlinespace
+\textbf{FR-02} & Payment Security & System shall authenticate transactions using a 4--6 digit numeric PIN, enforce account lockout after 3 consecutive failed PIN attempts, and prevent double-debits. \\
+\addlinespace
+\textbf{FR-03} & Feature Extraction & System shall extract 11 logical features and transform them into a 15-dimensional numeric vector (including balance discrepancies, amount-to-balance ratios, and diurnal hours). \\
+\addlinespace
+\textbf{FR-04} & ML Inference & System shall invoke the trained Random Forest model to compute continuous fraud probability $P(\text{fraud}) \in [0.0, 1.0]$. \\
+\addlinespace
+\textbf{FR-05} & SHAP XAI Engine & System shall compute local Shapley values via \texttt{shap.TreeExplainer} and synthesize natural language explanations alongside top positive/negative feature drivers. \\
+\addlinespace
+\textbf{FR-06} & Risk Policy Engine & System shall calculate a composite $0-100$ risk score and classify the transaction into \textit{LOW}, \textit{MEDIUM}, \textit{HIGH}, or \textit{CRITICAL} tiers. \\
+\addlinespace
+\textbf{FR-07} & Email OTP Step-Up & For \textit{MEDIUM} and \textit{HIGH} risk transactions, system shall generate a cryptographically random 6-digit OTP, deliver it via SMTP TLS, and start a 180-second countdown. \\
+\addlinespace
+\textbf{FR-08} & Settlement Invariant& System shall strictly prevent balance deduction on held transactions until valid OTP verification is completed. \\
+\addlinespace
+\textbf{FR-09} & SOC Incident Triage & System shall automatically open security alert records for high/critical transactions and allow SOC analysts to resolve alerts with audit logs. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Non-Functional Requirements}
+\begin{table}[h]
+\centering
+\caption{System Non-Functional Requirements Specification}
+\label{tab:non_functional_requirements}
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\textbf{NFR Category} & \textbf{Engineering Metric \& Compliance Specification} \\
+\midrule
+\textbf{Security} & All sensitive credentials stored as salted hashes (PBKDF2/Scrypt); API routes protected via JWT; rate limiting on password reset and OTP endpoints; zero exposed secrets in client payloads. \\
+\addlinespace
+\textbf{Performance} & End-to-end ML inference, feature transformation, and risk score generation shall execute within $< 150\text{ ms}$ on standard server hardware. \\
+\addlinespace
+\textbf{Reliability} & All financial balance updates and state transitions wrapped in ACID database transactions; automatic session rollback on failure to prevent data corruption. \\
+\addlinespace
+\textbf{Usability} & Modern responsive Glassmorphism UI; intuitive step-by-step payment modal; clear, non-technical plain-English explanations for customers. \\
+\addlinespace
+\textbf{Maintainability} & Modular Flask application factory architecture with decoupled service layers, clean blueprints, and isolated persistence models. \\
+\addlinespace
+\textbf{Scalability} & Stateless REST API design allowing horizontal scaling behind standard WSGI/ASGI reverse proxies (Gunicorn/Nginx). \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Hardware and Software Requirements}
+\subsection{Hardware Requirements}
+\begin{itemize}
+    \item \textbf{Server / Development Machine}: Multi-core Processor (Intel Core i5/i7 or AMD Ryzen, $\ge 4$ cores), $\ge 8\text{ GB}$ RAM, $\ge 10\text{ GB}$ storage.
+    \item \textbf{Client Device}: Any modern desktop, laptop, tablet, or smartphone with internet connectivity and a modern web browser.
+\end{itemize}
+
+\subsection{Software Requirements}
+\begin{itemize}
+    \item \textbf{Operating System}: Windows 10/11, Linux (Ubuntu 20.04+), or macOS.
+    \item \textbf{Runtime Environment}: Python 3.11+ / Python 3.14.
+    \item \textbf{Backend Dependencies}: Flask 3.1, Flask-SQLAlchemy 3.1, Flask-JWT-Extended 4.7, Scikit-Learn 1.8, XGBoost 3.4, SHAP 0.52, Joblib 1.5, Pytest 9.1.
+    \item \textbf{Client Browser}: Google Chrome ($\ge 110$), Mozilla Firefox ($\ge 110$), Apple Safari ($\ge 16$), or Microsoft Edge ($\ge 110$).
+\end{itemize}
+
+\section{User Roles and Access Permissions}
+\begin{table}[h]
+\centering
+\caption{Role-Based Access Control (RBAC) Matrix}
+\label{tab:rbac_matrix}
+\begin{tabularx}{\textwidth}{lXX}
+\toprule
+\textbf{System Capability / Endpoint} & \textbf{Regular User (\texttt{USER})} & \textbf{SOC Administrator (\texttt{ADMIN})} \\
+\midrule
+Customer Dashboard \& Balance View & \textbf{Granted} (Own Account) & Denied (Restricted to SOC views) \\
+Initiate Payment \& Submit PIN & \textbf{Granted} & Denied \\
+Verify Transaction OTP Challenge & \textbf{Granted} (Own Transactions) & Denied \\
+View Personal Transaction History & \textbf{Granted} (Own Ledger) & Denied \\
+Access SOC Analytics Dashboard & Denied (HTTP 403 Forbidden) & \textbf{Granted} \\
+Triage / Resolve Security Alerts & Denied (HTTP 403 Forbidden) & \textbf{Granted} \\
+Inspect Model Metrics \& Drift & Denied (HTTP 403 Forbidden) & \textbf{Granted} \\
+Audit Global System Ledger & Denied (HTTP 403 Forbidden) & \textbf{Granted} \\
+\bottomrule
+\end{tabularx}
+\end{table}

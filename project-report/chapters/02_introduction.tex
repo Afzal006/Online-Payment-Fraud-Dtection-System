@@ -1,0 +1,59 @@
+% =========================================================
+% CHAPTER 2: INTRODUCTION
+% =========================================================
+\chapter{Introduction}
+\label{chap:introduction}
+
+\section{Background}
+The global financial landscape has undergone a monumental shift toward real-time digital payments. Modern electronic transaction infrastructures, such as the Unified Payments Interface (UPI) in India, SEPA Instant Credit Transfers in Europe, and Real-Time Payments (RTP) in the United States, facilitate near-instantaneous settlement of financial transfers 24 hours a day, 365 days a year. While real-time processing has maximized economic efficiency and retail convenience, it has concurrently reduced the time window available for financial institutions to intercept and neutralize fraudulent transactions before fund exfiltration becomes irreversible.
+
+\section{Project Overview}
+\textbf{FraudShield AI} is an intelligent, full-stack payment fraud detection and adaptive risk assessment platform engineered to provide real-time transaction protection. The system intercepts digital payment requests (such as P2P transfers, UPI VPA transfers, and simulated merchant payments) and subjects every transaction to a multi-layered evaluation pipeline prior to monetary settlement. The core architecture integrates supervised machine learning classifiers, multi-signal behavioral heuristic engines, local explainable AI (SHAP), and an automated step-up Email One-Time Password (OTP) verification service.
+
+\section{Motivation}
+Digital financial fraud has evolved from basic physical card cloning to sophisticated cyber threats, including credential stuffing, social engineering, SIM-swap attacks, and rapid account-draining schemes. According to cybersecurity and banking reports, billions of dollars are lost annually to electronic payment scams. 
+
+Traditional fraud defense systems face three critical failure points:
+\begin{enumerate}[label=\arabic*.]
+    \item \textbf{High False Positives and User Churn}: Coarse, rigid rule thresholds frequently block legitimate customers during emergency transfers or high-value purchases, creating severe customer dissatisfaction.
+    \item \textbf{Rule Brittleness}: Fraud syndicates rapidly reverse-engineer static rule boundaries (e.g., executing multiple transfers just below threshold amounts), rendering heuristic filters ineffective against zero-day fraud patterns.
+    \item \textbf{Opacity and Lack of Recourse}: Modern deep learning models act as impenetrable ``black boxes,'' providing numerical probabilities without actionable rationales, leaving customers confused and compliance officers unable to explain transaction denials.
+\end{enumerate}
+
+\section{Need for the Project}
+There is an urgent industrial and academic need for an integrated fraud prevention platform that balances \textit{high fraud detection sensitivity}, \textit{low legitimate user friction}, and \textit{complete algorithmic transparency}. By combining machine learning probability with behavioral signals, calculating an adaptive $0-100$ risk score, and enforcing strict pre-settlement Email OTP challenges, FraudShield AI demonstrates how modern FinTech platforms can secure transactions without prematurely deducting customer funds.
+
+\section{Project Objectives}
+The primary technical and academic objectives of this project are:
+\begin{itemize}
+    \item \textbf{Empirical ML Pipeline Development}: Design, train, tune, and evaluate multiple machine learning algorithms (Logistic Regression, Decision Trees, XGBoost, and Random Forest) on financial payment transaction data.
+    \item \textbf{Class Imbalance Mitigation}: Implement rigorous cross-validation and balanced cost-sensitive learning to handle extreme class imbalance (imbalance ratio $\approx 773:1$) without overfitting.
+    \item \textbf{Dual-Perspective Explainable AI (XAI)}: Integrate \texttt{shap.TreeExplainer} to compute mathematical Shapley attributions, delivering plain-English explanations to end-users and technical waterfall attributions to fraud analysts.
+    \item \textbf{4-Tier Adaptive Risk Engine}: Design a multi-signal risk scoring policy categorized into \textit{LOW ($0-29$)}, \textit{MEDIUM ($30-59$)}, \textit{HIGH ($60-79$)}, and \textit{CRITICAL ($80-100$)}.
+    \item \textbf{Pre-Settlement Balance Protection}: Enforce an atomic database invariant where suspicious transactions trigger an RFC-5322 compliant Email OTP challenge and zero balance is deducted until verification succeeds.
+    \item \textbf{Full-Stack FinTech Architecture}: Implement an end-to-end web application consisting of a modern responsive client interface, Flask 3.1 REST API, SQLAlchemy ORM persistence, and a Security Operations Center (SOC) dashboard.
+    \item \textbf{Automated Test Suite}: Verify complete system correctness through comprehensive automated unit, integration, and security testing.
+\end{itemize}
+
+\section{Scope of the System}
+\subsection{In-Scope Capabilities}
+\begin{itemize}
+    \item Customer account registration, login, and JWT-authenticated session management.
+    \item Simulated digital payment interface supporting Virtual Payment Addresses (VPAs), QR codes, and phone number transfers.
+    \item Real-time ML inference and 15-feature transformation pipeline.
+    \item Natural language and visual SHAP feature attribution generation.
+    \item 6-digit numeric Email OTP generation, hashing, and 180-second countdown verification.
+    \item SOC admin portal with alert triage, resolution logging, and system KPIs.
+\end{itemize}
+
+\subsection{Out-of-Scope Capabilities}
+\begin{itemize}
+    \item Direct physical hardware integration with live National Payments Corporation of India (NPCI) / core banking mainframes.
+    \item Direct issuance of physical plastic EMV chip debit/credit cards.
+\end{itemize}
+
+\section{Limitations}
+\begin{itemize}
+    \item \textbf{Dataset Synthesis}: Model training relies on the benchmark PaySim dataset, which models mobile financial transactions but may not capture all evolving geopolitical cyber-fraud techniques.
+    \item \textbf{Offline Model Updates}: The current release utilizes serialized model artifacts (\texttt{model.joblib}); automated online streaming model retraining is earmarked for future releases.
+\end{itemize}
