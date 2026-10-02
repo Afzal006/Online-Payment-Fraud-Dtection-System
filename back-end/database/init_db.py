@@ -384,7 +384,97 @@ def init_database(app=None, config_name: str = "development") -> bool:
             print(f"[!] Warning: Missing expected tables: {missing}")
             return False
 
+        # Ensure primary Administrator account is provisioned
+        try:
+            ensure_admin_account()
+        except Exception as e:
+            print(f"[-] Warning: Admin account bootstrap notice: {e}")
+
+        # Auto-seed sample customers & transactions if database is brand new
+        auto_seed = os.getenv("AUTO_SEED_DEMO_DATA", "true").lower() in ["true", "1", "yes"]
+        if auto_seed:
+            try:
+                from database.seed_db import seed_database
+                from app.models.transaction import Transaction
+                if Transaction.query.count() == 0:
+                    print("[*] Database is freshly initialized. Auto-seeding demo customers, transactions, and alerts...")
+                    seed_database(app)
+            except Exception as e:
+                print(f"[-] Auto-seed warning: {e}")
+
         print("[+] Database initialization completed successfully.")
+        return True
+
+
+def ensure_admin_account() -> bool:
+    """
+    Idempotently bootstrap the primary system administrator account.
+    Ensures that an admin account with active status and verified credentials
+    exists in any connected database (Render PostgreSQL / SQLite / MySQL).
+    """
+    admin_email = (
+        os.getenv("ADMIN_EMAIL")
+        or os.getenv("MAIL_USERNAME")
+        or os.getenv("MAIL_DEFAULT_SENDER")
+        or "teamfraudsheildai@gmail.com"
+    ).strip().lower()
+
+    admin_password = os.getenv("ADMIN_PASSWORD", "AdminDemo2026!")
+    admin_name = os.getenv("ADMIN_NAME", "SOC Administrator").strip()
+
+    admin = User.query.filter(db.func.lower(User.email) == admin_email).first()
+    if not admin:
+        # Check if any admin exists under another email
+        existing_admin = User.query.filter_by(role="ADMIN").first()
+        if not existing_admin:
+            print(f"[*] Provisioning primary administrator account: {admin_email}...")
+            admin = User(
+                name=admin_name,
+                email=admin_email,
+                role="ADMIN",
+                customer_account_id="FS-ADMIN-01",
+                primary_upi_id="admin@fraudshield",
+                phone_number=os.getenv("ADMIN_PHONE", "+91 98765 99999"),
+                account_balance=0.0,
+                is_phone_verified=True,
+                is_email_verified=True,
+                is_active=True,
+                account_status="ACTIVE",
+            )
+            admin.set_password(admin_password)
+            db.session.add(admin)
+            db.session.commit()
+            print(f"[+] Successfully created Administrator account: {admin_email}")
+            return True
+        else:
+            print(f"[~] Administrator account already exists: {existing_admin.email}")
+            return True
+    else:
+        # Ensure target admin user has ADMIN role and active status
+        updated = False
+        if admin.role != "ADMIN":
+            admin.role = "ADMIN"
+            updated = True
+        if not admin.is_active or admin.account_status != "ACTIVE":
+            admin.is_active = True
+            admin.account_status = "ACTIVE"
+            updated = True
+        if not admin.is_email_verified:
+            admin.is_email_verified = True
+            updated = True
+        if not admin.is_phone_verified:
+            admin.is_phone_verified = True
+            updated = True
+
+        # Synchronize password if explicit flag or requested
+        sync_pass = os.getenv("ADMIN_SYNC_PASSWORD", "true").lower() in ["true", "1", "yes"]
+        if sync_pass:
+            admin.set_password(admin_password)
+            updated = True
+
+        if updated:
+            db.session.commit()
+            print(f"[+] Administrator credentials updated/synchronized for: {admin_email}")
         return True
 
 

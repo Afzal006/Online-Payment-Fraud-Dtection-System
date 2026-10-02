@@ -99,6 +99,13 @@ class Config:
     SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "FraudShield AI Security")
     APP_PUBLIC_URL = os.getenv("APP_PUBLIC_URL", "")
 
+    # Admin Portal Credentials & Auto-Bootstrap Configuration
+    ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", os.getenv("MAIL_USERNAME", "teamfraudsheildai@gmail.com"))
+    ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "AdminDemo2026!")
+    ADMIN_NAME = os.getenv("ADMIN_NAME", "SOC Administrator")
+    ADMIN_SYNC_PASSWORD = os.getenv("ADMIN_SYNC_PASSWORD", "false").lower() in ["true", "1", "yes"]
+    AUTO_SEED_DEMO_DATA = os.getenv("AUTO_SEED_DEMO_DATA", "true").lower() in ["true", "1", "yes"]
+
     # SMS Gateway Configuration
     SMS_PROVIDER = os.getenv("SMS_PROVIDER", "development")
     MSG91_AUTH_KEY = os.getenv("MSG91_AUTH_KEY", "")

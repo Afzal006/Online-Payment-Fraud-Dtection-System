@@ -42,7 +42,13 @@ def seed_database(app=None, config_name: str = "development") -> bool:
         db.create_all()
 
         demo_user_password = os.getenv("DEMO_USER_PASSWORD", "UserDemo2026!")
-        demo_admin_password = os.getenv("DEMO_ADMIN_PASSWORD", "AdminDemo2026!")
+        demo_admin_password = os.getenv("ADMIN_PASSWORD", os.getenv("DEMO_ADMIN_PASSWORD", "AdminDemo2026!"))
+        admin_email = (
+            os.getenv("ADMIN_EMAIL")
+            or os.getenv("MAIL_USERNAME")
+            or os.getenv("MAIL_DEFAULT_SENDER")
+            or "teamfraudsheildai@gmail.com"
+        ).strip().lower()
 
         demo_accounts = [
             {
@@ -90,8 +96,8 @@ def seed_database(app=None, config_name: str = "development") -> bool:
                 "is_phone_verified": True,
             },
             {
-                "name": "SOC Admin Officer",
-                "email": os.environ.get("MAIL_USERNAME") or os.environ.get("MAIL_DEFAULT_SENDER") or "teamfraudshieldai@gmail.com",
+                "name": "SOC Administrator",
+                "email": admin_email,
                 "password": demo_admin_password,
                 "role": "ADMIN",
                 "phone_number": "+91 98765 99999",
@@ -105,9 +111,9 @@ def seed_database(app=None, config_name: str = "development") -> bool:
         print(f"[*] Seeding demo accounts for environment '{env}'...")
         user_map = {}
         for acc in demo_accounts:
-            existing = User.query.filter_by(email=acc["email"]).first()
+            existing = User.query.filter(db.func.lower(User.email) == acc["email"].lower()).first()
             if existing:
-                print(f"[~] Account '{acc['email']}' already exists (Role: {existing.role}). Updating profile fields if empty...")
+                print(f"[~] Account '{acc['email']}' already exists (Role: {existing.role}). Updating profile fields...")
                 if not existing.customer_account_id:
                     existing.customer_account_id = acc["customer_account_id"]
                 if not existing.phone_number:
@@ -117,6 +123,12 @@ def seed_database(app=None, config_name: str = "development") -> bool:
                 if existing.account_balance is None or (existing.role == "USER" and existing.account_balance == 0):
                     existing.account_balance = acc["account_balance"]
                 existing.is_phone_verified = True
+                existing.is_email_verified = True
+                existing.is_active = True
+                existing.account_status = "ACTIVE"
+                if acc["role"] == "ADMIN":
+                    existing.role = "ADMIN"
+                    existing.set_password(acc["password"])
                 user_map[acc["email"]] = existing
             else:
                 user = User(
@@ -128,7 +140,9 @@ def seed_database(app=None, config_name: str = "development") -> bool:
                     primary_upi_id=acc["primary_upi_id"],
                     account_balance=acc["account_balance"],
                     is_phone_verified=acc["is_phone_verified"],
+                    is_email_verified=True,
                     is_active=True,
+                    account_status="ACTIVE",
                 )
                 user.set_password(acc["password"])
                 db.session.add(user)
