@@ -111,9 +111,17 @@ def seed_database(app=None, config_name: str = "development") -> bool:
         print(f"[*] Seeding demo accounts for environment '{env}'...")
         user_map = {}
         for acc in demo_accounts:
-            existing = User.query.filter(db.func.lower(User.email) == acc["email"].lower()).first()
+            existing = User.query.filter(
+                db.or_(
+                    db.func.lower(User.email) == acc["email"].lower(),
+                    User.customer_account_id == acc["customer_account_id"],
+                    User.primary_upi_id == acc["primary_upi_id"]
+                )
+            ).first()
             if existing:
-                print(f"[~] Account '{acc['email']}' already exists (Role: {existing.role}). Updating profile fields...")
+                print(f"[~] Account '{acc['email']}' already exists (ID: {existing.id}, Role: {existing.role}). Updating profile fields...")
+                existing.email = acc["email"]
+                existing.name = acc["name"]
                 if not existing.customer_account_id:
                     existing.customer_account_id = acc["customer_account_id"]
                 if not existing.phone_number:
