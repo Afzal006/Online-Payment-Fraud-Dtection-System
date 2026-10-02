@@ -35,6 +35,16 @@ class Config:
         clean_url = raw_db_url.strip()
         if clean_url.startswith("postgres://"):
             clean_url = clean_url.replace("postgres://", "postgresql://", 1)
+        # Ensure driver compatibility (psycopg2 vs psycopg v3)
+        if clean_url.startswith("postgresql://") and "+" not in clean_url.split("://")[0]:
+            try:
+                import psycopg2
+            except ImportError:
+                try:
+                    import psycopg
+                    clean_url = clean_url.replace("postgresql://", "postgresql+psycopg://", 1)
+                except ImportError:
+                    pass
         SQLALCHEMY_DATABASE_URI = clean_url
     else:
         SQLALCHEMY_DATABASE_URI = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
