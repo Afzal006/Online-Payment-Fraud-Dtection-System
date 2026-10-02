@@ -408,34 +408,70 @@ def init_database(app=None, config_name: str = "development") -> bool:
 
 def ensure_admin_account() -> bool:
     """
-    Idempotently bootstrap the primary system administrator account.
-    Ensures that an admin account with active status and verified credentials
-    exists in any connected database (Render PostgreSQL / SQLite / MySQL).
+    Idempotently bootstrap administrator accounts.
+    Ensures that admin accounts (including personal ID afzalmohideen15@gmail.com and team IDs)
+    exist with ACTIVE status and verified credentials in any connected database.
     """
-    admin_email = (
-        os.getenv("ADMIN_EMAIL")
-        or os.getenv("MAIL_USERNAME")
-        or os.getenv("MAIL_DEFAULT_SENDER")
-        or "teamfraudsheildai@gmail.com"
-    ).strip().lower()
-
     admin_password = os.getenv("ADMIN_PASSWORD", "AdminDemo2026!")
-    admin_name = os.getenv("ADMIN_NAME", "SOC Administrator").strip()
 
-    admin = User.query.filter(db.func.lower(User.email) == admin_email).first()
-    if not admin:
-        # Check if any admin exists under another email
-        existing_admin = User.query.filter_by(role="ADMIN").first()
-        if not existing_admin:
-            print(f"[*] Provisioning primary administrator account: {admin_email}...")
+    target_admins = [
+        {
+            "email": "afzalmohideen15@gmail.com",
+            "name": "Afzal Mohideen (Admin)",
+            "customer_account_id": "FS-ADMIN-AFZAL",
+            "primary_upi_id": "afzal@fraudshield",
+            "phone_number": "+91 98765 00001",
+        },
+        {
+            "email": "teamfraudsheildai@gmail.com",
+            "name": "FraudShield SOC Admin",
+            "customer_account_id": "FS-ADMIN-01",
+            "primary_upi_id": "admin@fraudshield",
+            "phone_number": "+91 98765 99999",
+        },
+        {
+            "email": "teamfraudshieldai@gmail.com",
+            "name": "FraudShield Security Team",
+            "customer_account_id": "FS-ADMIN-02",
+            "primary_upi_id": "shieldadmin@fraudshield",
+            "phone_number": "+91 98765 99998",
+        },
+        {
+            "email": "admin@fraudshield.ai",
+            "name": "System Administrator",
+            "customer_account_id": "FS-ADMIN-03",
+            "primary_upi_id": "sysadmin@fraudshield",
+            "phone_number": "+91 98765 99997",
+        },
+    ]
+
+    custom_admin = os.getenv("ADMIN_EMAIL")
+    if custom_admin and custom_admin.strip():
+        c_clean = custom_admin.strip().lower()
+        if not any(a["email"].lower() == c_clean for a in target_admins):
+            target_admins.insert(0, {
+                "email": c_clean,
+                "name": os.getenv("ADMIN_NAME", "SOC Administrator").strip(),
+                "customer_account_id": "FS-ADMIN-CUSTOM",
+                "primary_upi_id": "customadmin@fraudshield",
+                "phone_number": os.getenv("ADMIN_PHONE", "+91 98765 00000"),
+            })
+
+    sync_pass = os.getenv("ADMIN_SYNC_PASSWORD", "true").lower() in ["true", "1", "yes"]
+
+    for acc in target_admins:
+        target_email = acc["email"].strip().lower()
+        admin = User.query.filter(db.func.lower(User.email) == target_email).first()
+        if not admin:
+            print(f"[*] Provisioning administrator account: {target_email}...")
             admin = User(
-                name=admin_name,
-                email=admin_email,
+                name=acc["name"],
+                email=target_email,
                 role="ADMIN",
-                customer_account_id="FS-ADMIN-01",
-                primary_upi_id="admin@fraudshield",
-                phone_number=os.getenv("ADMIN_PHONE", "+91 98765 99999"),
-                account_balance=0.0,
+                customer_account_id=acc["customer_account_id"],
+                primary_upi_id=acc["primary_upi_id"],
+                phone_number=acc["phone_number"],
+                account_balance=100000.0,
                 is_phone_verified=True,
                 is_email_verified=True,
                 is_active=True,
@@ -444,38 +480,31 @@ def ensure_admin_account() -> bool:
             admin.set_password(admin_password)
             db.session.add(admin)
             db.session.commit()
-            print(f"[+] Successfully created Administrator account: {admin_email}")
-            return True
+            print(f"[+] Successfully created Administrator account: {target_email}")
         else:
-            print(f"[~] Administrator account already exists: {existing_admin.email}")
-            return True
-    else:
-        # Ensure target admin user has ADMIN role and active status
-        updated = False
-        if admin.role != "ADMIN":
-            admin.role = "ADMIN"
-            updated = True
-        if not admin.is_active or admin.account_status != "ACTIVE":
-            admin.is_active = True
-            admin.account_status = "ACTIVE"
-            updated = True
-        if not admin.is_email_verified:
-            admin.is_email_verified = True
-            updated = True
-        if not admin.is_phone_verified:
-            admin.is_phone_verified = True
-            updated = True
+            updated = False
+            if admin.role != "ADMIN":
+                admin.role = "ADMIN"
+                updated = True
+            if not admin.is_active or admin.account_status != "ACTIVE":
+                admin.is_active = True
+                admin.account_status = "ACTIVE"
+                updated = True
+            if not admin.is_email_verified:
+                admin.is_email_verified = True
+                updated = True
+            if not admin.is_phone_verified:
+                admin.is_phone_verified = True
+                updated = True
+            if sync_pass and not admin.check_password(admin_password):
+                admin.set_password(admin_password)
+                updated = True
 
-        # Synchronize password if explicit flag or requested
-        sync_pass = os.getenv("ADMIN_SYNC_PASSWORD", "true").lower() in ["true", "1", "yes"]
-        if sync_pass:
-            admin.set_password(admin_password)
-            updated = True
+            if updated:
+                db.session.commit()
+                print(f"[+] Administrator credentials updated/synchronized for: {target_email}")
 
-        if updated:
-            db.session.commit()
-            print(f"[+] Administrator credentials updated/synchronized for: {admin_email}")
-        return True
+    return True
 
 
 if __name__ == "__main__":

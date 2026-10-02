@@ -31,23 +31,38 @@ class Config:
 
     # Database URI with postgresql scheme normalization and explicit DATABASE_URL support
     raw_db_url = os.getenv("DATABASE_URL")
-    if raw_db_url and raw_db_url.strip():
-        clean_url = raw_db_url.strip()
-        if clean_url.startswith("postgres://"):
-            clean_url = clean_url.replace("postgres://", "postgresql://", 1)
-        # Ensure driver compatibility (psycopg2 vs psycopg v3)
-        if clean_url.startswith("postgresql://") and "+" not in clean_url.split("://")[0]:
+    if not raw_db_url or not raw_db_url.strip():
+        raw_db_url = "postgresql://fraud_detection_db_free_user:pnEMduVSbcrPtkrB7WASG52UsTfr5n7q@dpg-davu36e7bikc73ffb6r0-a.oregon-postgres.render.com/fraud_detection_db_free"
+
+    clean_url = raw_db_url.strip()
+    if clean_url.startswith("postgres://"):
+        clean_url = clean_url.replace("postgres://", "postgresql://", 1)
+
+    # If an internal Render hostname is used from outside Render (e.g. Vercel or local), route via external hostname
+    if "@dpg-" in clean_url and ".render.com" not in clean_url:
+        host_part = clean_url.split("@")[1].split("/")[0].split(":")[0]
+        if not os.getenv("RENDER"):
+            clean_url = clean_url.replace(host_part, f"{host_part}.oregon-postgres.render.com")
+        else:
+            import socket
             try:
-                import psycopg2
+                socket.setdefaulttimeout(1.5)
+                socket.gethostbyname(host_part)
+            except Exception:
+                clean_url = clean_url.replace(host_part, f"{host_part}.oregon-postgres.render.com")
+
+    # Ensure driver compatibility (psycopg2 vs psycopg v3)
+    if clean_url.startswith("postgresql://") and "+" not in clean_url.split("://")[0]:
+        try:
+            import psycopg2
+        except ImportError:
+            try:
+                import psycopg
+                clean_url = clean_url.replace("postgresql://", "postgresql+psycopg://", 1)
             except ImportError:
-                try:
-                    import psycopg
-                    clean_url = clean_url.replace("postgresql://", "postgresql+psycopg://", 1)
-                except ImportError:
-                    pass
-        SQLALCHEMY_DATABASE_URI = clean_url
-    else:
-        SQLALCHEMY_DATABASE_URI = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+                pass
+
+    SQLALCHEMY_DATABASE_URI = clean_url
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     # ML Artifact Paths
